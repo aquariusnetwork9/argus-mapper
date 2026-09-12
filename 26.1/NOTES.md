@@ -52,6 +52,11 @@ multiply this module's risk rather than just carry it. If ARD ever ships a
 26.1 port of its own, or someone verifies the mapping story well enough to
 port it by hand, this is where that would go.
 
+The `/argus gui` screen (`fabric-common/gui/`) is also not available here, for the same
+reason as ARD: it reaches into ARD's config directly (Road Dept. tab) and uses
+`net.minecraft.client.gui.*` classes not yet verified against this module's mappings. The
+`/argus` and `/ard` chat commands remain the only interface on 26.1.
+
 One consequence: this module's nether privacy gate
 (`restrictNetherToHighways` in the config) has no verified way to check
 highway-adjacency at all here, so it falls back to excluding **every**

@@ -15,9 +15,13 @@ import tools.argus.uploader.core.RegionFile;
 import tools.argus.uploader.core.ServerProfile;
 import tools.argus.uploader.core.UploadManifest;
 import tools.argus.uploader.core.UploadProgressListener;
+import tools.argus.uploader.core.MapperStats;
 import tools.argus.uploader.core.UploadRunner;
+import tools.argus.uploader.core.UploadSummary;
 import tools.argus.uploader.core.XaeroRootFinder;
 import tools.argus.uploader.core.XaeroScanner;
+import tools.argus.uploader.fabric.api.ArgusMapperEvents;
+import tools.argus.uploader.fabric.gui.ArgusGuiScreen;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -78,7 +82,13 @@ final class ArgusCommand {
                                 .then(argument("url", StringArgumentType.greedyString())
                                         .executes(ctx -> discordSetHook(ctx.getSource(), StringArgumentType.getString(ctx, "url")))))
                         .then(literal("test").executes(ctx -> discordTest(ctx.getSource())))
-                        .then(literal("report").executes(ctx -> discordReport(ctx.getSource())))));
+                        .then(literal("report").executes(ctx -> discordReport(ctx.getSource()))))
+                .then(literal("gui").executes(ctx -> openGui(ctx.getSource()))));
+    }
+
+    private static int openGui(FabricClientCommandSource source) {
+        MinecraftClient.getInstance().setScreen(new ArgusGuiScreen());
+        return 1;
     }
 
     private static int discordSetHook(FabricClientCommandSource source, String url) {
@@ -448,6 +458,13 @@ final class ArgusCommand {
             if (config.autoReportToDiscord && !config.discordWebhookUrl.isBlank() && succeeded > 0) {
                 sendDiscordReport(source, manifest);
             }
+            // ArgusMapperEvents promises client-thread delivery (see its javadoc); onComplete
+            // itself runs on UploadRunner's background executor, so marshal over.
+            MinecraftClient.getInstance().execute(() -> {
+                ArgusMapperEvents.UPLOAD_COMPLETED.invoker().onUploadCompleted(new UploadSummary(succeeded, failed));
+                ArgusMapperEvents.STATS_CHANGED.invoker().onStatsChanged(
+                        MapperStats.of(manifest.size(), ArgusUploaderClientMod.stats().totalDistanceBlocks));
+            });
         }
     }
 }

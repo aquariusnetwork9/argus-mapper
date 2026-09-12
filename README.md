@@ -167,6 +167,43 @@ Beyond the API basics (`apiBaseUrl`, `token`, `layer`), notable ones:
 - `/argus discord test` - send a test message to confirm the webhook works.
 - `/argus discord report` - manually post current stats (regions
   contributed, approximate chunks, distance traveled) to Discord.
+- `/argus gui` - opens the GUI (see below) - everything above also works
+  as a screen, not just chat commands.
+
+## GUI
+
+`/argus gui`, or bind a key to it in Controls (unbound by default, listed
+under "ARGUS Mapper"). Six tabs - General, Token, Servers, Stats, Road
+Dept. (ARD), and Add-on API - read and write the exact same config objects
+the chat commands do, so there's no separate GUI-only state to fall out of
+sync. Not available on [26.1](26.1/NOTES.md) (it shares that build's other
+omissions - see that file).
+
+Picked from three visual directions pitched up front (a vanilla-menu skin,
+a floating utility-client skin, and an original watchtower-console skin) -
+shipped as **Nightwire**, the utility-client one: dark panel, violet
+accent, pill-style toggles. Minecraft can't load a custom font without
+shipping a resource pack (not done for v1), so in-game text uses the
+default Minecraft font rather than the concept mockup's; sliders also keep
+vanilla's own groove/handle rendering rather than a fully custom one.
+
+### Add-on API
+
+Other Fabric mods can react to ARGUS Mapper without touching its
+internals, via `tools.argus.uploader.fabric.api.ArgusMapperEvents` - the
+same pattern ARD's own `LocalHazardEvents` uses:
+
+```java
+ArgusMapperEvents.UPLOAD_COMPLETED.register(summary ->
+    log.info(summary.succeeded() + " regions uploaded"));
+ArgusMapperEvents.STATS_CHANGED.register(stats ->
+    hud.update(stats.distanceTraveledBlocks()));
+```
+
+Both fire on the client thread. `UPLOAD_COMPLETED` fires once per
+`/argus upload` run; `STATS_CHANGED` fires after that and once at startup
+with whatever was already on disk, so a fresh listener doesn't have to
+wait for an upload to get an initial value.
 
 ## How region files are found
 

@@ -35,10 +35,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class HighwayConditionsFabricClient implements ClientModInitializer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("ard");
+    private static volatile HighwayConditionsConfig sharedConfig;
+
+    /** The same live config instance the reporter/HUD/command modules hold - not a fresh disk
+     *  read - so a caller (e.g. ARGUS Mapper's GUI) that mutates and saves it is immediately
+     *  reflected in this mod's own already-running modules instead of going stale until restart. */
+    public static HighwayConditionsConfig config() {
+        return sharedConfig;
+    }
 
     @Override
     public void onInitializeClient() {
         HighwayConditionsConfig cfg = HighwayConditionsConfig.load();
+        sharedConfig = cfg;
         GeoCache geoCache = new GeoCache();
         // 3, not 2: geometry fetch/refresh, report flush, the HUD's conditions poll, and an
         // on-demand /ard link call can all legitimately want a thread around the same moment.
