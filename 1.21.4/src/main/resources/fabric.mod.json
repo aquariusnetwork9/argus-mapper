@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "argus-mapper",
+  "version": "${version}",
+  "name": "ARGUS Mapper",
+  "description": "Uploads Xaero's World Map region files to the ARGUS spawn region mapping project.",
+  "authors": ["Aquarius Networks"],
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "tools.argus.uploader.fabric.ArgusUploaderClientMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "~1.21.4",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

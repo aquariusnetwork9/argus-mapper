@@ -1,0 +1,27 @@
+// Not consumed as a compiled jar by the Fabric modules (they add
+// src/main/java below directly as an extra source directory, so each
+// module compiles this code with its own Minecraft-version toolchain).
+// This build file exists only so the logic can be compiled/checked on its
+// own, independent of any Fabric/Loom/Minecraft download.
+plugins {
+    id 'java'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:6.1.3')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+test {
+    useJUnitPlatform()
+}

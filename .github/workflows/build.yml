@@ -1,0 +1,83 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  core-tests:
+    name: Core unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.7.1
+      # --configure-on-demand: this is a single-Gradle-build repo covering
+      # every Minecraft version's module, so a plain `gradle :core:test`
+      # would still configure (and try to resolve Loom/Minecraft/Yarn
+      # dependencies for) every other module first. Not needed to run
+      # core's plain-Java tests, and it would let an unrelated module's
+      # config break this job.
+      - run: gradle --configure-on-demand :core:test
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-test-results
+          path: core/build/reports/tests/test
+
+  build-1-21-x:
+    name: Build ${{ matrix.mcVersion }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mcVersion: ['1.21.4', '1.21.8', '1.21.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.5.0
+      - run: gradle --configure-on-demand ":${{ matrix.mcVersion }}:build"
+      - name: Upload mod jar
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: argus-mapper-${{ matrix.mcVersion }}
+          path: ${{ matrix.mcVersion }}/build/libs/*.jar
+
+  build-26-1:
+    name: Build 26.1 (best-effort, unverified - see 26.1/NOTES.md)
+    runs-on: ubuntu-latest
+    # This module's mappings/Loom setup could not be compile-tested when it
+    # was written (see 26.1/NOTES.md) - a failure here is expected until
+    # someone verifies it against the real 26.1 toolchain, and must never
+    # block the 1.21.x builds above, which are real and working.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.7.0
+      - run: gradle --configure-on-demand ':26.1:build'
+      - name: Upload mod jar
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: argus-mapper-26.1
+          path: 26.1/build/libs/*.jar

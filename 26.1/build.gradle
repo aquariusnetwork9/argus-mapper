@@ -1,0 +1,45 @@
+// BEST-EFFORT / UNVERIFIED — see NOTES.md before relying on this module.
+plugins {
+    id 'fabric-loom' version '1.18.0-alpha.21'
+}
+
+sourceCompatibility = JavaVersion.VERSION_25
+targetCompatibility = JavaVersion.VERSION_25
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+// core/ is pure Java with zero Minecraft deps, so it's reused as-is. This
+// module's own src/main/java holds a from-scratch adapter (NOT
+// fabric-common/, which is written against Yarn mappings that don't apply
+// here) — see NOTES.md.
+sourceSets {
+    main {
+        java {
+            srcDir rootProject.file('core/src/main/java')
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:26.1.2"
+    // TODO verify against Fabric's own 26.1 example mod template - see NOTES.md.
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:0.19.5"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.155.3+26.1.2"
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filteringCharset 'UTF-8'
+    filesMatching('fabric.mod.json') {
+        expand version: project.version
+    }
+}

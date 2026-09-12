@@ -1,0 +1,15 @@
+plugins {
+    // Lets Gradle auto-download whatever JDK a module's toolchain asks for
+    // (17 for core, 21 for the 1.21.x modules, 25 for 26.1) instead of
+    // requiring every one to be pre-installed - matters most in CI, where
+    // the runner's default JDK won't match all of these at once.
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+rootProject.name = 'argus-mapper'
+
+include 'core'
+include '1.21.4'
+include '1.21.8'
+include '1.21.11'
+include '26.1'

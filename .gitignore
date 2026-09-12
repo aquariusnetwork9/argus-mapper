@@ -1,0 +1,13 @@
+.gradle/
+build/
+*.class
+out/
+.idea/
+*.iml
+run/
+
+# Real local config — never commit the token. The safe template is
+# config.example.properties, which is intentionally NOT ignored.
+*.properties
+!config.example.properties
+!gradle.properties
