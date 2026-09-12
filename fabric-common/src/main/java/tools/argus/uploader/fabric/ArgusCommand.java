@@ -21,6 +21,7 @@ import tools.argus.uploader.core.XaeroScanner;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -220,6 +221,12 @@ final class ArgusCommand {
             info(source, "  skipped " + resolved.rejectedOutOfRange + " region(s) outside the +/-"
                     + CoordLimits.MAX_ABS_COORD + " coordinate limit.");
         }
+        if (resolved.rejectedOffHighway > 0) {
+            info(source, "  skipped " + resolved.rejectedOffHighway + " nether region(s) not near a known ARD highway.");
+        }
+        if (resolved.netherRestrictedButGeometryUnloaded) {
+            info(source, "  nether restriction is on but ARD highway geometry hasn't loaded for this server yet - no nether regions are eligible right now. Try again shortly, or set restrictNetherToHighways=false in " + ArgusUploaderClientMod.configPath() + " to disable (not recommended).");
+        }
         info(source, "Run /argus upload" + (dimensionFilter != null ? " " + dimensionFilter : "") + " to send these. This does not send anything yet.");
         return 1;
     }
@@ -261,6 +268,12 @@ final class ArgusCommand {
         Resolved resolved = resolveRoot(source, dimensionFilter);
         if (resolved == null) {
             return 0;
+        }
+        if (resolved.rejectedOffHighway > 0) {
+            info(source, "Excluded " + resolved.rejectedOffHighway + " nether region(s) not near a known ARD highway.");
+        }
+        if (resolved.netherRestrictedButGeometryUnloaded) {
+            info(source, "ARD highway geometry hasn't loaded for this server yet - no nether regions are eligible this run.");
         }
 
         try {
@@ -313,10 +326,12 @@ final class ArgusCommand {
         info(source, "token=" + (c.token.isBlank() ? "(not set)" : "(set, hidden)"));
         info(source, "xaeroRootOverride=" + (c.xaeroRootOverride.isBlank() ? "(auto-detect)" : c.xaeroRootOverride));
         info(source, "includeCaves=" + c.includeCaves + " paceMillis=" + c.paceMillis + " maxPerBatch=" + c.maxPerBatch);
+        info(source, "restrictNetherToHighways=" + c.restrictNetherToHighways);
         return 1;
     }
 
-    private record Resolved(Path root, List<RegionFile> regions, int rejectedOutOfRange) {
+    private record Resolved(Path root, List<RegionFile> regions, int rejectedOutOfRange,
+                             int rejectedOffHighway, boolean netherRestrictedButGeometryUnloaded) {
     }
 
     private static Resolved resolveRoot(FabricClientCommandSource source, String dimensionFilter) {
@@ -349,7 +364,27 @@ final class ArgusCommand {
             if (dimensionFilter != null) {
                 regions = regions.stream().filter(r -> r.dimension().equals(dimensionFilter)).toList();
             }
-            return new Resolved(root, regions, scanResult.rejectedOutOfRange());
+
+            int rejectedOffHighway = 0;
+            boolean netherRestrictedButGeometryUnloaded = false;
+            if (config.restrictNetherToHighways) {
+                NetherHighwayFilter gate = ArgusUploaderClientMod.netherHighwayFilter();
+                boolean anyNetherPresent = regions.stream().anyMatch(r -> r.dimension().equals("the_nether"));
+                if (anyNetherPresent && !gate.isGeometryLoaded()) {
+                    netherRestrictedButGeometryUnloaded = true;
+                }
+                List<RegionFile> filtered = new ArrayList<>();
+                for (RegionFile r : regions) {
+                    if (!r.dimension().equals("the_nether") || gate.regionAllowed(r)) {
+                        filtered.add(r);
+                    } else {
+                        rejectedOffHighway++;
+                    }
+                }
+                regions = filtered;
+            }
+
+            return new Resolved(root, regions, scanResult.rejectedOutOfRange(), rejectedOffHighway, netherRestrictedButGeometryUnloaded);
         } catch (IOException e) {
             error(source, "Scan failed: " + e.getMessage());
             return null;

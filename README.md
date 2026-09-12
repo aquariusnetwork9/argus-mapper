@@ -5,7 +5,11 @@ mapping project. It scans your Xaero's World Map region files for the
 current world/server and uploads them to ARGUS's partner API
 (`https://map.argus.tools/api/partner/upload`), respecting the API's rate
 limits and batch size, and can report contribution stats (regions/chunks
-mapped, distance traveled) to a Discord webhook.
+mapped, distance traveled) to a Discord webhook. It also bundles
+[Aquarius Road Department](https://github.com/aquariusnetwork9/Aquarius-Road-Department)
+(ARD) - crowdsourced nether-highway condition reporting and a hazard-ahead
+HUD - as a second, independent feature set in the same jar (see "Aquarius
+Road Department" below).
 
 ## Design
 
@@ -78,6 +82,54 @@ every dimension. This is enforced twice, independently:
    something else were to hand it one directly.
 
 `/argus scan` reports how many region files were skipped for this reason.
+
+## Nether highway privacy gate
+
+Nether coordinates are worth more than overworld ones - 1 nether block equals
+8 overworld blocks, so off-highway nether terrain hints at a proportionally
+larger overworld area than the equivalent overworld region would. On top of
+the coordinate cap above, `restrictNetherToHighways` (default **on**) adds a
+second, nether-specific restriction: a nether region can only be uploaded if
+it comes within [ARD](#aquarius-road-department-ard)'s reporting tolerance of
+a road ARD's own protocol already treats as public, contested infrastructure
+(PROTOCOL.md §3) - never an arbitrary off-highway area.
+
+This is a coarse, **region-level** gate, not pixel-level redaction of a
+region's interior - a 512-block Xaero region that a highway just clips at one
+edge still uploads in full. Redacting the interior of Xaero's own tile format
+would need actually decoding and re-encoding it, a much bigger undertaking;
+this is the privacy-conservative middle ground between "upload everything"
+and that.
+
+How it decides, in `core/HighwayProximity.java` (fully unit tested) plus the
+`fabric-common` glue that feeds it live geometry:
+
+1. Convert the region's Xaero index to its real nether block bounding box
+   (`regionX*512 .. regionX*512+511`, same for Z).
+2. Fetch ARD's own live road table for the current server from its fully
+   public `GET /geometry/<server>` route (PROTOCOL.md §7 - no token, and this
+   mod maintains its own fetch independent of ARD's reporter/HUD modules, so
+   it stays correct even if you have ARD's own reporting disabled).
+3. Apply ARD's road-set policy (PROTOCOL.md §3) per road: an `axis` road is
+   allowed everywhere; a ring/diamond/grid road only within ARD's
+   near-spawn radius. Applied conservatively - a road that's ambiguous at
+   this coarse per-road check is treated as *not* eligible, never the
+   reverse.
+4. Test whether the region's box comes within ARD's own reporting tolerance
+   of any eligible road segment (exact line-vs-box geometry, not sampling).
+
+**Fails closed:** if ARD's geometry hasn't loaded yet for the current server
+(not yet fetched, server unrecognized, network hiccup), *every* nether region
+is excluded until it has - never "allow through because we can't check yet."
+`/argus scan` reports both how many regions this excluded and whether
+geometry simply hasn't loaded. Overworld and end uploads are completely
+unaffected either way. Set `restrictNetherToHighways=false` in the config to
+disable this (not recommended).
+
+The [26.1](26.1/NOTES.md) build does not bundle ARD (see below), so it has no
+verified way to check highway-adjacency at all - there, this setting instead
+excludes *all* nether regions outright while it's on, rather than silently
+skipping the check.
 
 ## Config file (`argus-mapper.properties`)
 
@@ -153,6 +205,69 @@ stays silent.
 
 To add a second server once ARGUS expands: `/argus server add 2b2t
 <layer-name> 2b2t,2builders2tools` (comma-separated match substrings).
+
+## Aquarius Road Department (ARD)
+
+[Aquarius Road Department](https://github.com/aquariusnetwork9/Aquarius-Road-Department)
+is a separate, privacy-engineered project: crowdsourced nether-highway
+condition reporting (holes, lava, obstructions, campers) whose entire wire
+protocol is built so that **an off-highway coordinate is unrepresentable** -
+there's no `(x, z)` field anywhere on the wire, only a 1-D
+`(road, seg, along)` position re-derived from a public road table. See
+[its PROTOCOL.md](https://github.com/aquariusnetwork9/Aquarius-Road-Department/blob/main/PROTOCOL.md)
+for the full contract.
+
+Its Fabric client (`client-fabric`) is bundled into this mod as a second,
+fully independent feature set - own package
+(`com.aquariusnetwork.highwayconditions`), own config file (`ard.json`), own
+mod initializer, registered alongside `ArgusUploaderClientMod` in the same
+`fabric.mod.json`. Neither module reaches into the other's internals; the
+only place they touch at all is the nether privacy gate above, which uses
+ARD's *public, unauthenticated* geometry read, not its reporter/HUD modules.
+Ported as close to verbatim as possible from ARD's own repository - the
+privacy-critical gate logic (`net/Geo.java`, `net/Report.java`, the
+obstruction detector) is copied unchanged rather than reimplemented, exactly
+as ARD's own README states it does between its own producers ("byte-for-byte
+the same files").
+
+**What it adds**, all commands under `/ard` (see ARD's own
+[client-fabric/README.md](https://github.com/aquariusnetwork9/Aquarius-Road-Department/blob/main/client-fabric/README.md)
+for full detail):
+
+- **Hazard-ahead HUD** - on by default, a pure read against ARD's public
+  `/conditions/<server>` route, zero privacy cost, independent of whether
+  you report anything yourself.
+- **Local hazard alert** - an always-on, zero-network detection of an
+  obstruction right in front of you, and a public Fabric event
+  (`api.LocalHazardEvents`) other mods (a Meteor addon, a Baritone add-on)
+  can hook into directly.
+- **Optional Baritone auto-avoid** - opt-in (`/ard baritone on|off`, off by
+  default), zero compile/runtime dependency on Baritone (reflection-probed,
+  degrades to "disabled" if Baritone isn't present or its API doesn't match).
+- **Report submission** - opt-in (`/ard reporting on|off`, off by default):
+  contributes your own on-highway observations back to ARD's network.
+- **Account linking** (`/ard link` + `/ard token <value>`) - reach Tier B
+  (PROTOCOL.md §6) via a device-code-style Discord link flow.
+
+**Per-Minecraft-version differences**, matched to ARD's own documented API
+research rather than guessed (see each fork's javadoc): the HUD registration
+call (`HudRenderCallback` on 1.21.4 vs `HudElementRegistry` on 1.21.8/1.21.11),
+the account-linking session-service accessor (`getSessionService()` on
+1.21.4/1.21.8 vs `getApiServices().sessionService()` on 1.21.11), and the
+`ClickEvent` construction shape (old `ClickEvent(Action, String)` on 1.21.4
+vs the newer sealed `ClickEvent.OpenUrl(URI)` on 1.21.8/1.21.11). These three
+files (`HighwayConditionsFabricClient.java` and
+`command/HighwayConditionsCommand.java`) live per-version in each MC folder's
+own `ard-src/`; everything else is one shared copy in `ard-common/`.
+
+**Not included in the 26.1 build**: ARD itself has no 26.1 port, and porting
+its considerably larger vanilla-API surface (HUD registration, the Mojang
+session service, Baritone reflection) to that unverified toolchain would
+compound 26.1's existing risk far more than this project's own thin adapter
+layer already does (see [26.1/NOTES.md](26.1/NOTES.md)). 26.1 gets none of
+the `/ard` commands or HUD, and its nether privacy gate falls back to
+excluding all nether regions outright (see above) rather than checking
+highway-adjacency it has no verified way to check.
 
 ## Discord
 

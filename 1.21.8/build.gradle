@@ -16,6 +16,12 @@ sourceSets {
         java {
             srcDir rootProject.file('core/src/main/java')
             srcDir rootProject.file('fabric-common/src/main/java')
+            // Aquarius Road Department (ARD) - see ard-common/README via the project root README
+            // "Design" section. ard-src holds this version's own fork of the 2 files with real
+            // API differences across 1.21.4/1.21.8/1.21.11 (HUD registration, session service,
+            // ClickEvent shape) - see each fork's javadoc.
+            srcDir rootProject.file('ard-common/src/main/java')
+            srcDir rootProject.file('1.21.8/ard-src')
         }
     }
 }

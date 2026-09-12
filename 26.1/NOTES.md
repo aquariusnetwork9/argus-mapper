@@ -37,3 +37,24 @@ Everything else — `core/` (scanning, rate limiting, upload, config,
 manifest) and the command tree in this module's `ArgusCommand.java` — uses
 no vanilla Minecraft classes at all, only Fabric API and JDK, so it should
 need no changes.
+
+## Aquarius Road Department (ARD) is deliberately NOT included here
+
+The 1.21.4/1.21.8/1.21.11 builds bundle
+[Aquarius Road Department](https://github.com/aquariusnetwork9/Aquarius-Road-Department)
+(nether-highway condition reporting + HUD) as a second feature set - see the
+root README's "Aquarius Road Department (ARD)" section. This module does
+not, on purpose: ARD itself has no 26.1 port, and its client touches a much
+larger vanilla API surface than this project's own thin adapter (HUD
+registration, the Mojang session service for account linking, Baritone
+reflection) - porting all of that to an already-unverified toolchain would
+multiply this module's risk rather than just carry it. If ARD ever ships a
+26.1 port of its own, or someone verifies the mapping story well enough to
+port it by hand, this is where that would go.
+
+One consequence: this module's nether privacy gate
+(`restrictNetherToHighways` in the config) has no verified way to check
+highway-adjacency at all here, so it falls back to excluding **every**
+nether region outright while the setting is on, rather than the 1.21.x
+builds' real per-region highway check - see the root README's "Nether
+highway privacy gate" section.

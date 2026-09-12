@@ -3,12 +3,13 @@
   "id": "argus-mapper",
   "version": "${version}",
   "name": "ARGUS Mapper",
-  "description": "Uploads Xaero's World Map region files to the ARGUS spawn region mapping project.",
+  "description": "Uploads Xaero's World Map region files to the ARGUS spawn region mapping project, and bundles Aquarius Road Department (ARD) nether-highway condition reporting/HUD.",
   "authors": ["Aquarius Networks"],
   "environment": "client",
   "entrypoints": {
     "client": [
-      "tools.argus.uploader.fabric.ArgusUploaderClientMod"
+      "tools.argus.uploader.fabric.ArgusUploaderClientMod",
+      "com.aquariusnetwork.highwayconditions.HighwayConditionsFabricClient"
     ]
   },
   "depends": {

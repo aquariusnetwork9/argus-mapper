@@ -32,6 +32,7 @@ class ArgusConfigTest {
         cfg.layer = "shallowplague";
         cfg.xaeroRootOverride = "C:\\some\\path";
         cfg.includeCaves = true;
+        cfg.restrictNetherToHighways = false;
         cfg.paceMillis = 4242;
         cfg.maxPerBatch = 50;
         cfg.maxFileSizeBytes = 123456;
@@ -47,6 +48,7 @@ class ArgusConfigTest {
         assertEquals("shallowplague", reloaded.layer);
         assertEquals("C:\\some\\path", reloaded.xaeroRootOverride);
         assertTrue(reloaded.includeCaves);
+        assertFalse(reloaded.restrictNetherToHighways);
         assertEquals(4242, reloaded.paceMillis);
         assertEquals(50, reloaded.maxPerBatch);
         assertEquals(123456, reloaded.maxFileSizeBytes);

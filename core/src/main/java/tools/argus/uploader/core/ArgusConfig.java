@@ -15,6 +15,12 @@ public final class ArgusConfig {
     public String layer = "";
     public String xaeroRootOverride = "";
     public boolean includeCaves = false;
+
+    // Nether privacy gate (see HighwayProximity): when true, a nether region can only be
+    // uploaded if it comes near a road in the Aquarius Road Department (ARD) highway network for
+    // the current server. Defaults to true - "exclude when unsure" is the correct default, not
+    // an opt-in. Does not affect overworld or end uploads.
+    public boolean restrictNetherToHighways = true;
     public long paceMillis = 3000L;
     public int maxPerBatch = 200;
     public long maxFileSizeBytes = 10_000_000L;
@@ -51,6 +57,7 @@ public final class ArgusConfig {
         cfg.layer = p.getProperty("layer", cfg.layer);
         cfg.xaeroRootOverride = p.getProperty("xaeroRootOverride", cfg.xaeroRootOverride);
         cfg.includeCaves = Boolean.parseBoolean(p.getProperty("includeCaves", String.valueOf(cfg.includeCaves)));
+        cfg.restrictNetherToHighways = Boolean.parseBoolean(p.getProperty("restrictNetherToHighways", String.valueOf(cfg.restrictNetherToHighways)));
         cfg.paceMillis = parseLong(p.getProperty("paceMillis"), cfg.paceMillis);
         cfg.maxPerBatch = (int) parseLong(p.getProperty("maxPerBatch"), cfg.maxPerBatch);
         cfg.maxFileSizeBytes = parseLong(p.getProperty("maxFileSizeBytes"), cfg.maxFileSizeBytes);
@@ -69,6 +76,7 @@ public final class ArgusConfig {
         p.setProperty("layer", layer);
         p.setProperty("xaeroRootOverride", xaeroRootOverride);
         p.setProperty("includeCaves", String.valueOf(includeCaves));
+        p.setProperty("restrictNetherToHighways", String.valueOf(restrictNetherToHighways));
         p.setProperty("paceMillis", String.valueOf(paceMillis));
         p.setProperty("maxPerBatch", String.valueOf(maxPerBatch));
         p.setProperty("maxFileSizeBytes", String.valueOf(maxFileSizeBytes));

@@ -20,6 +20,7 @@ import tools.argus.uploader.core.XaeroScanner;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -109,6 +110,9 @@ final class ArgusCommand {
         if (resolved.rejectedOutOfRange > 0) {
             info(source, "  skipped " + resolved.rejectedOutOfRange + " region(s) outside the +/-"
                     + CoordLimits.MAX_ABS_COORD + " coordinate limit.");
+        }
+        if (resolved.rejectedOffHighway > 0) {
+            info(source, "  skipped " + resolved.rejectedOffHighway + " nether region(s): this build has no verified way to check ARD highway-adjacency yet (see 26.1/NOTES.md), so nether uploads are excluded entirely while restrictNetherToHighways is on.");
         }
         info(source, "Run /argus upload" + (dimensionFilter != null ? " " + dimensionFilter : "") + " to send these. This does not send anything yet.");
         return 1;
@@ -326,10 +330,11 @@ final class ArgusCommand {
         info(source, "token=" + (c.token.isBlank() ? "(not set)" : "(set, hidden)"));
         info(source, "xaeroRootOverride=" + (c.xaeroRootOverride.isBlank() ? "(auto-detect)" : c.xaeroRootOverride));
         info(source, "includeCaves=" + c.includeCaves + " paceMillis=" + c.paceMillis + " maxPerBatch=" + c.maxPerBatch);
+        info(source, "restrictNetherToHighways=" + c.restrictNetherToHighways + " (fail-closed: excludes ALL nether regions in this build - see 26.1/NOTES.md)");
         return 1;
     }
 
-    private record Resolved(Path root, List<RegionFile> regions, int rejectedOutOfRange) {
+    private record Resolved(Path root, List<RegionFile> regions, int rejectedOutOfRange, int rejectedOffHighway) {
     }
 
     private static Resolved resolveRoot(FabricClientCommandSource source, String dimensionFilter) {
@@ -361,7 +366,25 @@ final class ArgusCommand {
             if (dimensionFilter != null) {
                 regions = regions.stream().filter(r -> r.dimension().equals(dimensionFilter)).toList();
             }
-            return new Resolved(root, regions, scanResult.rejectedOutOfRange());
+
+            // Unlike the 1.21.x builds, this module doesn't bundle ARD's geometry fetch (see
+            // 26.1/NOTES.md), so there's no verified way to check nether highway-adjacency here.
+            // Fail closed the same way an unloaded-geometry case does elsewhere: exclude ALL
+            // nether regions rather than upload them unfiltered.
+            int rejectedOffHighway = 0;
+            if (config.restrictNetherToHighways) {
+                List<RegionFile> filtered = new ArrayList<>();
+                for (RegionFile r : regions) {
+                    if (!r.dimension().equals("the_nether")) {
+                        filtered.add(r);
+                    } else {
+                        rejectedOffHighway++;
+                    }
+                }
+                regions = filtered;
+            }
+
+            return new Resolved(root, regions, scanResult.rejectedOutOfRange(), rejectedOffHighway);
         } catch (IOException e) {
             error(source, "Scan failed: " + e.getMessage());
             return null;
