@@ -391,6 +391,29 @@ No Gradle wrapper is committed - CI installs Gradle directly via
 lets Gradle auto-download whatever JDK each module's toolchain asks for
 (17/21/25) instead of requiring them all pre-installed.
 
+`fabric-loom` itself is published only on Fabric's own Maven
+(`https://maven.fabricmc.net/`), not on the Gradle Plugin Portal - it needs
+a `pluginManagement { repositories { ... } }` block in `settings.gradle`
+naming that repository, or every build fails at configuration time with
+"Plugin [id: 'fabric-loom' ...] was not found in any of the following
+sources" no matter how correct the version number is. (This is what broke
+CI outright from the first commit through 2026-09-14 - both prior pushes
+show as failed runs in the Actions tab; nothing after that root cause was
+ever actually verified against a real build until it was fixed.)
+
+## Releasing
+
+Pushing a `v*` tag (e.g. `git tag v0.2.0 && git push origin v0.2.0`) runs
+the full build/test matrix against that commit and, if it's green, a
+`release` job rebuilds the three real 1.21.x jars (and 26.1's, best-effort)
+with `-Pversion=<tag without the leading v>` so each jar's own
+`fabric.mod.json` reports the version it actually shipped under, then
+publishes a GitHub Release with all of them attached via `gh release
+create`. A plain push to `main` still only builds and tests - it never
+publishes anything. `gradle.properties`' `version=0.1.0` is just the
+fallback for a local/branch build; a release always overrides it from the
+tag.
+
 ## Building locally
 
 Each version subdirectory is a standard Fabric Loom project. Without a

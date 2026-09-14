@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -81,3 +82,58 @@ jobs:
         with:
           name: argus-mapper-26.1
           path: 26.1/build/libs/*.jar
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    # Only for an actual version tag (git tag vX.Y.Z && git push origin vX.Y.Z)
+    # - a plain push to main builds and tests but never publishes a release.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [core-tests, build-1-21-x, build-26-1]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.5.0
+      - name: Derive version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      # Rebuilt here (rather than reusing the matrix job's artifacts) so
+      # every jar's own fabric.mod.json version matches the tag it ships
+      # under, instead of the "unspecified" default from a plain build.
+      - name: Build 1.21.x jars at release version
+        run: |
+          for mc in 1.21.4 1.21.8 1.21.11; do
+            gradle --configure-on-demand ":$mc:build" -Pversion=${{ steps.ver.outputs.version }}
+          done
+      - name: Build 26.1 jar at release version (best-effort, unverified)
+        continue-on-error: true
+        run: gradle --configure-on-demand ':26.1:build' -Pversion=${{ steps.ver.outputs.version }}
+      - name: Collect jars
+        run: |
+          mkdir -p dist
+          cp 1.21.4/build/libs/*.jar dist/ 2>/dev/null || true
+          cp 1.21.8/build/libs/*.jar dist/ 2>/dev/null || true
+          cp 1.21.11/build/libs/*.jar dist/ 2>/dev/null || true
+          cp 26.1/build/libs/*.jar dist/ 2>/dev/null || true
+          ls -la dist
+      - name: Refuse to publish an incomplete release
+        run: |
+          count=$(ls dist/*.jar 2>/dev/null | wc -l)
+          if [ "$count" -lt 3 ]; then
+            echo "::error::Expected at least the 3 real 1.21.x jars, found $count - not publishing a broken release."
+            exit 1
+          fi
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" dist/*.jar \
+            --title "ARGUS Mapper ${{ steps.ver.outputs.version }}" \
+            --generate-notes

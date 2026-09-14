@@ -1,3 +1,18 @@
+pluginManagement {
+    repositories {
+        // fabric-loom is published ONLY here, not on the Gradle Plugin
+        // Portal - without this block, resolving the `fabric-loom` plugin
+        // ID fails with "was not found in any of the following sources"
+        // no matter how correct the version number is.
+        maven {
+            name = 'Fabric'
+            url = 'https://maven.fabricmc.net/'
+        }
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
 plugins {
     // Lets Gradle auto-download whatever JDK a module's toolchain asks for
     // (17 for core, 21 for the 1.21.x modules, 25 for 26.1) instead of
