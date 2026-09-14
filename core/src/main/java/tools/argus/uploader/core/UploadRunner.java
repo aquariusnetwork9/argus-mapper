@@ -108,9 +108,11 @@ public final class UploadRunner {
         String batchId = runIdPrefix + "-" + batchIndex;
         RegionFile region = queue.poll();
 
+        int currentBatch = batchIndex;
+        int currentInBatch = inBatch;
         attempt(region, batchId, 0, () -> {
-            int nextInBatch = inBatch + 1;
-            int nextBatch = batchIndex;
+            int nextInBatch = currentInBatch + 1;
+            int nextBatch = currentBatch;
             executor.schedule(() -> processNext(queue, runIdPrefix, nextBatch, nextInBatch), config.paceMillis, TimeUnit.MILLISECONDS);
         });
     }
