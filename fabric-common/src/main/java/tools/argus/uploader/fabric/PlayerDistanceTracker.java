@@ -32,7 +32,9 @@ final class PlayerDistanceTracker {
             lastPos = null;
             return;
         }
-        Vec3d pos = client.player.getPos();
+        // Entity.getPos() was renamed getEntityPos() in 1.21.11's Yarn mappings - getX/Y/Z()
+        // are stable across all three, so build the Vec3d from those instead of picking a name.
+        Vec3d pos = new Vec3d(client.player.getX(), client.player.getY(), client.player.getZ());
         if (lastPos != null) {
             double delta = lastPos.distanceTo(pos);
             if (delta < MAX_SANE_BLOCKS_PER_TICK) {

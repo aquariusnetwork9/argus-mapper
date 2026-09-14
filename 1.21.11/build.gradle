@@ -21,6 +21,18 @@ sourceSets {
             // ClickEvent shape) - see each fork's javadoc.
             srcDir rootProject.file('ard-common/src/main/java')
             srcDir rootProject.file('1.21.11/ard-src')
+            // The GUI (/argus gui) doesn't compile as-is on this version - PressableWidget's
+            // onPress/renderWidget/drawIcon signatures changed here, and KeyBinding's category
+            // parameter became a record instead of a String. ArgusGuiScreen and its widgets are
+            // excluded outright (not ported); GuiLauncher gets a no-op replacement from gui-src
+            // below instead of an exclude, since fabric-common's ArgusCommand/ArgusUploaderClientMod
+            // still need *a* GuiLauncher class to compile against - see its own javadoc.
+            srcDir rootProject.file('1.21.11/gui-src')
+            exclude 'tools/argus/uploader/fabric/gui/ArgusGuiScreen.java'
+            exclude 'tools/argus/uploader/fabric/gui/PanelButton.java'
+            exclude 'tools/argus/uploader/fabric/gui/ToggleButton.java'
+            exclude 'tools/argus/uploader/fabric/gui/LabeledSlider.java'
+            exclude 'tools/argus/uploader/fabric/gui/GuiLauncher.java'
         }
     }
 }

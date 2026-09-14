@@ -21,7 +21,7 @@ import tools.argus.uploader.core.UploadSummary;
 import tools.argus.uploader.core.XaeroRootFinder;
 import tools.argus.uploader.core.XaeroScanner;
 import tools.argus.uploader.fabric.api.ArgusMapperEvents;
-import tools.argus.uploader.fabric.gui.ArgusGuiScreen;
+import tools.argus.uploader.fabric.gui.GuiLauncher;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -87,7 +87,11 @@ final class ArgusCommand {
     }
 
     private static int openGui(FabricClientCommandSource source) {
-        MinecraftClient.getInstance().setScreen(new ArgusGuiScreen());
+        if (!GuiLauncher.isAvailable()) {
+            source.sendError(Text.literal("[ARGUS] /argus gui isn't available on this Minecraft version yet."));
+            return 0;
+        }
+        GuiLauncher.open();
         return 1;
     }
 

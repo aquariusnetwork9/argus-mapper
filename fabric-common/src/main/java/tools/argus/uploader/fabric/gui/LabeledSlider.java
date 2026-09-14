@@ -53,9 +53,4 @@ public class LabeledSlider extends SliderWidget {
     protected void applyValue() {
         onChange.accept(currentValue());
     }
-
-    @Override
-    protected void appendClickableNarrations(NarrationMessageBuilder builder) {
-        this.appendDefaultNarrations(builder);
-    }
 }

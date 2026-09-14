@@ -177,7 +177,15 @@ under "ARGUS Mapper"). Six tabs - General, Token, Servers, Stats, Road
 Dept. (ARD), and Add-on API - read and write the exact same config objects
 the chat commands do, so there's no separate GUI-only state to fall out of
 sync. Not available on [26.1](26.1/NOTES.md) (it shares that build's other
-omissions - see that file).
+omissions - see that file), and not currently available on **1.21.11**
+either: that version's `PressableWidget` changed `onPress`/`renderWidget`/
+`drawIcon` in ways ArgusGuiScreen's widgets haven't been ported to, and its
+`KeyBinding` category parameter became a `KeyBinding.Category` record
+instead of a plain `String`. `/argus gui` on 1.21.11 replies that the GUI
+isn't available rather than doing nothing; see
+`1.21.11/gui-src/GuiLauncher.java`'s javadoc and `1.21.11/build.gradle` for
+exactly what's excluded. `/argus` and `/ard` chat commands are unaffected
+on every version.
 
 Picked from three visual directions pitched up front (a vanilla-menu skin,
 a floating utility-client skin, and an original watchtower-console skin) -

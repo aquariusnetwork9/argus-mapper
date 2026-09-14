@@ -4,14 +4,10 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
-import org.lwjgl.glfw.GLFW;
 import tools.argus.uploader.core.ArgusConfig;
 import tools.argus.uploader.core.MapperStats;
 import tools.argus.uploader.core.ServerProfile;
@@ -19,7 +15,7 @@ import tools.argus.uploader.core.ServerRegistry;
 import tools.argus.uploader.core.StatsStore;
 import tools.argus.uploader.core.UploadManifest;
 import tools.argus.uploader.fabric.api.ArgusMapperEvents;
-import tools.argus.uploader.fabric.gui.ArgusGuiScreen;
+import tools.argus.uploader.fabric.gui.GuiLauncher;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -36,9 +32,6 @@ public final class ArgusUploaderClientMod implements ClientModInitializer {
     private static volatile ServerRegistry registry = ServerRegistry.empty();
     private static volatile StatsStore stats = StatsStore.empty();
     private static final NetherHighwayFilter netherHighwayFilter = new NetherHighwayFilter();
-
-    private static final KeyBinding OPEN_GUI_KEY = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-            "key.argus-mapper.open_gui", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_UNKNOWN, "key.categories.argus-mapper"));
 
     @Override
     public void onInitializeClient() {
@@ -67,11 +60,7 @@ public final class ArgusUploaderClientMod implements ClientModInitializer {
         } catch (IOException ignored) {
         }
 
-        ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            while (OPEN_GUI_KEY.wasPressed()) {
-                client.setScreen(new ArgusGuiScreen());
-            }
-        });
+        ClientTickEvents.END_CLIENT_TICK.register(GuiLauncher::tick);
 
         // Drives NetherHighwayFilter's own geometry fetch (independent of ARD's reporter/HUD -
         // see that class's javadoc for why). Resolves the current ARD server id from whichever
