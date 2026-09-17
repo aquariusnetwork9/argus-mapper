@@ -10,6 +10,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 
 /**
  * Sends region files to the ARGUS API one at a time, waiting
@@ -60,30 +61,59 @@ public final class UploadRunner {
         cancelled.set(true);
     }
 
-    /** Filters, reports a summary, and if there's anything to upload, starts the background run. */
+    /**
+     * Splits {@code found} into what will and won't be uploaded. Pure and side-effect-free (does
+     * not touch the manifest or network) so it's directly unit-testable; {@link #start} is the
+     * only caller in production.
+     */
+    static FilterResult filterRegions(List<RegionFile> found, UploadManifest manifest, long maxFileSizeBytes,
+                                       Predicate<RegionFile> blackzoneFilter) {
+        List<RegionFile> toUpload = new ArrayList<>();
+        int alreadyUploaded = 0;
+        int tooLarge = 0;
+        int excludedByBlackzone = 0;
+        for (RegionFile region : found) {
+            if (manifest.isUploaded(region)) {
+                alreadyUploaded++;
+            } else if (region.sizeBytes() > maxFileSizeBytes) {
+                tooLarge++;
+            } else if (!blackzoneFilter.test(region)) {
+                excludedByBlackzone++;
+            } else {
+                toUpload.add(region);
+            }
+        }
+        return new FilterResult(toUpload, alreadyUploaded, tooLarge, excludedByBlackzone);
+    }
+
+    record FilterResult(List<RegionFile> toUpload, int alreadyUploaded, int tooLarge, int excludedByBlackzone) {
+    }
+
+    /** Equivalent to {@link #start(List, String, Predicate)} with nothing blackzoned. */
     public void start(List<RegionFile> found, String runIdPrefix) {
+        start(found, runIdPrefix, region -> true);
+    }
+
+    /**
+     * Filters, reports a summary, and if there's anything to upload, starts the background run.
+     *
+     * @param blackzoneFilter returns false for a region a {@link BlackzoneStore} says must never
+     *                        be uploaded; checked here as well as inside {@link ArgusUploadClient}
+     *                        itself, same double-enforcement shape as {@link CoordLimits} - a bug
+     *                        in one layer alone can't defeat a blackzone.
+     */
+    public void start(List<RegionFile> found, String runIdPrefix, Predicate<RegionFile> blackzoneFilter) {
         if (running.get()) {
             listener.onFatalError("A run is already in progress.");
             return;
         }
-        List<RegionFile> toUpload = new ArrayList<>();
-        int alreadyUploaded = 0;
-        int tooLarge = 0;
-        for (RegionFile region : found) {
-            if (manifest.isUploaded(region)) {
-                alreadyUploaded++;
-                continue;
-            }
-            if (region.sizeBytes() > config.maxFileSizeBytes) {
-                tooLarge++;
-                continue;
-            }
-            toUpload.add(region);
-        }
-        listener.onSummary(found.size(), alreadyUploaded, tooLarge, toUpload.size());
+        FilterResult filtered = filterRegions(found, manifest, config.maxFileSizeBytes, blackzoneFilter);
+        List<RegionFile> toUpload = filtered.toUpload();
+        listener.onSummary(found.size(), filtered.alreadyUploaded(), filtered.tooLarge(), filtered.excludedByBlackzone(), toUpload.size());
         if (toUpload.isEmpty()) {
             return;
         }
+        listener.onQueueBuilt(toUpload);
 
         Deque<RegionFile> queue = new ArrayDeque<>(toUpload);
         totalCount = toUpload.size();
@@ -123,6 +153,7 @@ public final class UploadRunner {
             listener.onComplete(doneCount.get(), failCount.get());
             return;
         }
+        listener.onRegionStarted(region);
         ArgusUploadClient.UploadResult result = client.upload(region, batchId);
 
         if (result.success()) {

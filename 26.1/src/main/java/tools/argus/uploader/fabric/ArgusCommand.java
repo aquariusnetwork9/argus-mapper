@@ -409,7 +409,9 @@ final class ArgusCommand {
         }
 
         @Override
-        public void onSummary(int totalFound, int alreadyUploaded, int tooLarge, int toUpload) {
+        public void onSummary(int totalFound, int alreadyUploaded, int tooLarge, int excludedByBlackzone, int toUpload) {
+            // Blackzones aren't wired up on this build yet (see 26.1/NOTES.md-style scope notes
+            // elsewhere in this class) - excludedByBlackzone is always 0 here for now.
             info(source, "Found " + totalFound + " region(s): " + alreadyUploaded + " already uploaded, "
                     + tooLarge + " over the size limit, " + toUpload + " to upload.");
             if (toUpload == 0) {

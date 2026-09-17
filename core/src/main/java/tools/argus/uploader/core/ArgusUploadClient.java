@@ -13,9 +13,22 @@ public final class ArgusUploadClient {
 
     private final HttpClient http;
     private final ArgusConfig config;
+    private final BlackzoneStore blackzoneStore;
 
     public ArgusUploadClient(ArgusConfig config) {
+        this(config, BlackzoneStore.empty());
+    }
+
+    /**
+     * @param blackzoneStore checked here as well as by {@link UploadRunner#filterRegions}
+     *                       before a region ever reaches this point - same double-enforcement
+     *                       shape as {@link CoordLimits}, so this is the one method that talks
+     *                       to the network and a bug in the earlier filter alone can't defeat a
+     *                       blackzone.
+     */
+    public ArgusUploadClient(ArgusConfig config, BlackzoneStore blackzoneStore) {
         this.config = config;
+        this.blackzoneStore = blackzoneStore;
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
@@ -47,6 +60,10 @@ public final class ArgusUploadClient {
             return new UploadResult(-1, null, new IOException(
                     "Refusing to upload " + region.filename() + ": coordinate exceeds the +/-"
                             + CoordLimits.MAX_ABS_COORD + " limit."));
+        }
+        if (blackzoneStore.isBlackzoned(region.dimension(), config.layer, region)) {
+            return new UploadResult(-1, null, new IOException(
+                    "Refusing to upload " + region.filename() + ": covered by a blackzone."));
         }
         try {
             String url = config.apiBaseUrl
