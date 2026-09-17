@@ -1,6 +1,10 @@
 subprojects {
     group = 'tools.argus.uploader'
-    version = '0.1.0'
+    // Was a hardcoded '0.1.0' literal here, silently overriding both gradle.properties'
+    // version= and the release workflow's -Pversion=<tag> (see README "Releasing") - every
+    // release jar's fabric.mod.json has actually said "0.1.0" regardless of the tag it shipped
+    // under. Invisible until v0.2.0, since v0.1.0's tag happened to match this literal.
+    version = rootProject.version
 
     repositories {
         mavenCentral()
