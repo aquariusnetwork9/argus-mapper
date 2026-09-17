@@ -159,6 +159,73 @@ or by hand in `<instance>/config/argus-mapper.properties` before launch.
       selection - should refuse with "A run is already in progress"
       instead of starting a second concurrent run.
 
+### 7. Xaero map integration - region overlay (blackzone/upload coloring)
+
+`MixinGuiMapOverlay` colors each visible region tile on the fullscreen
+world map: red outline for a blackzone, translucent amber fill while it's
+uploading this run, translucent green fill once uploaded (this run or a
+past one). 1.21.11 only, same as the rest of this integration.
+
+- [x] Drag-select an area and "Mark ARGUS Blackzone" - a red outline
+      should snap onto that exact region immediately, with no GUI reopen
+      needed.
+
+      **Confirmed live.** The hard part here was the world-to-screen pixel
+      math: `GuiMap` (Xaero's own class) keeps `cameraX`/`cameraZ`/`scale`/
+      `screenScale` privately and does the actual projection inline inside
+      its own ~6,000-instruction `render` method, with no public helper
+      and no decompiler available in this environment to read it as real
+      source. Fitted the transform instead from real logged
+      `(mouseX, mouseY)` <-> `(mouseBlockPosX, mouseBlockPosZ)` sample
+      pairs across three different zoom levels (a temporary diagnostic
+      build of this same Mixin class, since removed) before writing the
+      real drawing code - `screenX = width/2 + (blockX - cameraX) *
+      (scale/screenScale)`, same for Z/height. Also hit, and fixed, the
+      same "literal method name doesn't match runtime bytecode" trap as
+      the rest of this integration: `render` is inherited from vanilla
+      `Screen`, so a production launch has it compiled under its Fabric
+      intermediary name with no refmap to translate it (this mixins.json
+      has none, since GuiMap isn't Yarn-mapped) - injecting into
+      `renderPreDropdown` instead (Xaero's own method, not vanilla, so its
+      literal name resolves directly) sidesteps this entirely and happens
+      to land at the right point in the frame anyway: after the map's own
+      tiles are drawn (so the fill isn't painted over) but before the
+      right-click dropdown/tooltips (so those still render on top).
+- [x] Zoom and pan the map with that blackzone still on screen - the
+      outline should track exactly, never drifting or detaching.
+
+      **Confirmed live** - same transform as above, verified panning and
+      zooming through several levels.
+- [ ] Run `/argus upload` or "Upload This Area to ARGUS" over a
+      non-blackzoned, non-uploaded area - the region(s) should flash
+      amber while `UploadTracker` reports them QUEUED/UPLOADING, then
+      settle to green once the tracker reports DONE (a fake token failing
+      at the network step is expected and fine here - see Config setup;
+      that lands as FAILED, which the overlay leaves uncolored rather than
+      guessing).
+
+      **Not yet clicked through** - the classification data path
+      (`RegionOverlayState`) reuses the same `BlackzoneStore`/
+      `UploadTracker`/`UploadManifest` APIs already proven elsewhere in
+      this codebase, and the draw call is the exact same
+      transform+`DrawContext.fill` path the blackzone outline above just
+      confirmed - so this is believed to work, but "believed" isn't
+      "checked, per this document's own rule.
+- [ ] Restart the client after an upload completes (or one from a past
+      session, if the manifest already has entries for this account) and
+      reopen the map - previously-uploaded regions should still show
+      green, read back from `<config dir>/argus-mapper-manifest.txt`
+      rather than only this session's tracker.
+
+      **Known caveat:** this reads the manifest using the same
+      `<regionX>_<regionZ>.zip` filename convention `XaeroScanner` uses
+      everywhere else - which currently never matches the `.xwmc` cache
+      files recent Xaero World Map versions actually write (a real,
+      separate, already-known bug - see `XaeroScanner`). Until that's
+      fixed, don't expect this checkbox to pass on a fresh manifest either
+      - the *this-session* amber-to-green flow above doesn't depend on it
+      and should still work regardless.
+
 ## Known gaps going in (not yet fixed, just documented)
 
 - The `ConfirmScreen` -> return-to-map round trip

@@ -128,6 +128,14 @@ extra options:
   to the map. Refuses (with a chat message, no popup) if a run is already
   in progress or the selection has nothing eligible to upload.
 
+The map also colors each visible region tile so you can see this at a
+glance instead of checking chat or the Uploads tab: a red outline for a
+blackzone, translucent amber while it's uploading, translucent green once
+it's uploaded (this run or a past one) - the same idea as mods like
+NewerNewChunks coloring chunks by render version. Tracks pan and zoom, and
+never blocks map interaction if something goes wrong internally - it just
+stops drawing for that session rather than risking the map screen.
+
 ## Security: the API token
 
 **Never put the bearer token in source code, `fabric.mod.json`, or anything
