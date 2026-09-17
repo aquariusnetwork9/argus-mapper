@@ -20,10 +20,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The GUI replacement for the {@code /argus} and {@code /ard} chat commands - "Nightwire" skin
- * (dark panel, violet accent), chosen from three design concepts. Reads and writes the real
- * {@link ArgusConfig} / server registry / ARD config directly; there is no separate GUI-only
- * state to fall out of sync with the chat commands.
+ * 1.21.11's copy of fabric-common's ArgusGuiScreen - identical logic, only present here because
+ * fabric-common's copy is excluded on this module (see this module's GuiLauncher javadoc) and
+ * needs to compile against this module's own ported PanelButton/ToggleButton (see their javadoc
+ * for what changed on this version). Screen/DrawContext/TextFieldWidget are unaffected here -
+ * verified against the real 1.21.11 Yarn mappings, not assumed - so this file is a straight copy.
+ * Keep in sync with fabric-common's version by hand until/unless this is worth sharing properly.
  *
  * <p>Known v1 limitations: no scrolling (each tab's content is sized to fit without it - see
  * individual build*Tab() methods if a tab grows past that), and sliders keep vanilla's own

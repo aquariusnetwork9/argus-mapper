@@ -1,6 +1,7 @@
 package tools.argus.uploader.fabric;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.client.MinecraftClient;
@@ -8,9 +9,12 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import tools.argus.uploader.core.ArgusConfig;
 import tools.argus.uploader.core.ArgusUploadClient;
+import tools.argus.uploader.core.BlackZone;
+import tools.argus.uploader.core.BlackzoneStore;
 import tools.argus.uploader.core.CoordLimits;
 import tools.argus.uploader.core.DiscordWebhookClient;
 import tools.argus.uploader.core.LeaderboardReport;
+import tools.argus.uploader.core.RegionBounds;
 import tools.argus.uploader.core.RegionFile;
 import tools.argus.uploader.core.ServerProfile;
 import tools.argus.uploader.core.UploadManifest;
@@ -18,6 +22,7 @@ import tools.argus.uploader.core.UploadProgressListener;
 import tools.argus.uploader.core.MapperStats;
 import tools.argus.uploader.core.UploadRunner;
 import tools.argus.uploader.core.UploadSummary;
+import tools.argus.uploader.core.UploadTracker;
 import tools.argus.uploader.core.XaeroRootFinder;
 import tools.argus.uploader.core.XaeroScanner;
 import tools.argus.uploader.fabric.api.ArgusMapperEvents;
@@ -83,6 +88,36 @@ final class ArgusCommand {
                                         .executes(ctx -> discordSetHook(ctx.getSource(), StringArgumentType.getString(ctx, "url")))))
                         .then(literal("test").executes(ctx -> discordTest(ctx.getSource())))
                         .then(literal("report").executes(ctx -> discordReport(ctx.getSource()))))
+                .then(literal("blackzone")
+                        .executes(ctx -> blackzoneList(ctx.getSource()))
+                        .then(literal("list").executes(ctx -> blackzoneList(ctx.getSource())))
+                        .then(literal("add")
+                                .then(argument("id", StringArgumentType.word())
+                                        .then(argument("dimension", StringArgumentType.word())
+                                                .then(argument("minX", IntegerArgumentType.integer())
+                                                        .then(argument("minZ", IntegerArgumentType.integer())
+                                                                .then(argument("maxX", IntegerArgumentType.integer())
+                                                                        .then(argument("maxZ", IntegerArgumentType.integer())
+                                                                                .executes(ctx -> blackzoneAdd(ctx.getSource(),
+                                                                                        StringArgumentType.getString(ctx, "id"),
+                                                                                        StringArgumentType.getString(ctx, "dimension"),
+                                                                                        IntegerArgumentType.getInteger(ctx, "minX"),
+                                                                                        IntegerArgumentType.getInteger(ctx, "minZ"),
+                                                                                        IntegerArgumentType.getInteger(ctx, "maxX"),
+                                                                                        IntegerArgumentType.getInteger(ctx, "maxZ"),
+                                                                                        ""))
+                                                                                .then(argument("label", StringArgumentType.greedyString())
+                                                                                        .executes(ctx -> blackzoneAdd(ctx.getSource(),
+                                                                                                StringArgumentType.getString(ctx, "id"),
+                                                                                                StringArgumentType.getString(ctx, "dimension"),
+                                                                                                IntegerArgumentType.getInteger(ctx, "minX"),
+                                                                                                IntegerArgumentType.getInteger(ctx, "minZ"),
+                                                                                                IntegerArgumentType.getInteger(ctx, "maxX"),
+                                                                                                IntegerArgumentType.getInteger(ctx, "maxZ"),
+                                                                                                StringArgumentType.getString(ctx, "label"))))))))))
+                        .then(literal("remove")
+                                .then(argument("id", StringArgumentType.word())
+                                        .executes(ctx -> blackzoneRemove(ctx.getSource(), StringArgumentType.getString(ctx, "id")))))))
                 .then(literal("gui").executes(ctx -> openGui(ctx.getSource()))));
     }
 
@@ -156,6 +191,69 @@ final class ArgusCommand {
             info(source, "Reported to Discord.");
         } else {
             error(source, "Discord report failed: " + (result.error() != null ? result.error() : ("HTTP " + result.statusCode())));
+        }
+    }
+
+    private static int blackzoneList(FabricClientCommandSource source) {
+        ArgusConfig config = ArgusUploaderClientMod.config();
+        List<BlackZone> all = ArgusUploaderClientMod.blackzoneStore().all();
+        if (all.isEmpty()) {
+            info(source, "No blackzones. Add one with /argus blackzone add <id> <minX> <minZ> <maxX> <maxZ> [label] "
+                    + "(region-file coordinates, i.e. the numbers in a Xaero region filename like '3_-1.zip').");
+            return 1;
+        }
+        info(source, "Blackzones (current server layer '" + config.layer + "' marked ACTIVE):");
+        for (BlackZone zone : all) {
+            boolean active = zone.layer().equals(config.layer);
+            info(source, "  " + zone.id() + " [" + zone.dimension() + ", layer=" + zone.layer() + (active ? ", ACTIVE" : "")
+                    + "] region " + zone.bounds().minRegionX() + ".." + zone.bounds().maxRegionX()
+                    + ", " + zone.bounds().minRegionZ() + ".." + zone.bounds().maxRegionZ()
+                    + (zone.label().isBlank() ? "" : " \"" + zone.label() + "\""));
+        }
+        return 1;
+    }
+
+    private static int blackzoneAdd(FabricClientCommandSource source, String id, String dimension, int minX, int minZ, int maxX, int maxZ, String label) {
+        if (!VALID_DIMENSIONS.contains(dimension)) {
+            error(source, "Unknown dimension '" + dimension + "'. Valid: overworld, the_nether, theend.");
+            return 0;
+        }
+        ArgusConfig config = ArgusUploaderClientMod.config();
+        if (config.layer.isBlank()) {
+            error(source, "Set a server layer first (/argus server use <id> or /argus setlayer <layer>) - a blackzone is per-server.");
+            return 0;
+        }
+        RegionBounds bounds;
+        try {
+            bounds = RegionBounds.ofCorners(minX, minZ, maxX, maxZ);
+        } catch (IllegalArgumentException e) {
+            error(source, "Invalid bounds: " + e.getMessage());
+            return 0;
+        }
+        try {
+            ArgusUploaderClientMod.blackzoneStore().addOrReplace(new BlackZone(id, dimension, config.layer, bounds, label));
+            info(source, "Blackzone '" + id + "' saved for layer '" + config.layer
+                    + "'. It will never be uploaded, and existing /argus scan or /argus upload runs will exclude it from now on. "
+                    + "This is local only - it is never sent anywhere.");
+            return 1;
+        } catch (IOException e) {
+            error(source, "Failed to save blackzone: " + e.getMessage());
+            return 0;
+        }
+    }
+
+    private static int blackzoneRemove(FabricClientCommandSource source, String id) {
+        try {
+            boolean removed = ArgusUploaderClientMod.blackzoneStore().remove(id);
+            if (removed) {
+                info(source, "Blackzone '" + id + "' removed. Anything inside it can be uploaded again on the next run.");
+            } else {
+                error(source, "No blackzone with id '" + id + "'. See /argus blackzone list.");
+            }
+            return removed ? 1 : 0;
+        } catch (IOException e) {
+            error(source, "Failed to remove blackzone: " + e.getMessage());
+            return 0;
         }
     }
 
@@ -241,6 +339,9 @@ final class ArgusCommand {
         if (resolved.netherRestrictedButGeometryUnloaded) {
             info(source, "  nether restriction is on but ARD highway geometry hasn't loaded for this server yet - no nether regions are eligible right now. Try again shortly, or set restrictNetherToHighways=false in " + ArgusUploaderClientMod.configPath() + " to disable (not recommended).");
         }
+        if (resolved.rejectedByBlackzone > 0) {
+            info(source, "  skipped " + resolved.rejectedByBlackzone + " region(s) covered by a blackzone (see /argus blackzone list).");
+        }
         info(source, "Run /argus upload" + (dimensionFilter != null ? " " + dimensionFilter : "") + " to send these. This does not send anything yet.");
         return 1;
     }
@@ -289,15 +390,23 @@ final class ArgusCommand {
         if (resolved.netherRestrictedButGeometryUnloaded) {
             info(source, "ARD highway geometry hasn't loaded for this server yet - no nether regions are eligible this run.");
         }
+        if (resolved.rejectedByBlackzone > 0) {
+            info(source, "Excluded " + resolved.rejectedByBlackzone + " region(s) covered by a blackzone.");
+        }
 
         try {
             UploadManifest manifest = UploadManifest.load(ArgusUploaderClientMod.manifestPath());
-            ArgusUploadClient client = new ArgusUploadClient(config);
-            UploadProgressListener listener = new ChatProgressListener(source, manifest);
-            UploadRunner runner = new UploadRunner(client, config, manifest, listener);
+            BlackzoneStore blackzones = ArgusUploaderClientMod.blackzoneStore();
+            ArgusUploadClient client = new ArgusUploadClient(config, blackzones);
+            UploadTracker tracker = new UploadTracker(new ChatProgressListener(source, manifest));
+            ArgusUploaderClientMod.setActiveUpload(tracker);
+            UploadRunner runner = new UploadRunner(client, config, manifest, tracker);
             activeRunner = runner;
             String runId = "run-" + System.currentTimeMillis();
-            runner.start(resolved.regions, runId);
+            // Checked here too (not just inside ArgusUploadClient.upload()) so the summary the
+            // player sees before anything is sent already reflects blackzones - see
+            // UploadRunner.start()'s own javadoc for why this is double-enforced.
+            runner.start(resolved.regions, runId, region -> !blackzones.isBlackzoned(region.dimension(), config.layer, region));
             return 1;
         } catch (IOException e) {
             error(source, "Failed to start upload: " + e.getMessage());
@@ -345,7 +454,7 @@ final class ArgusCommand {
     }
 
     private record Resolved(Path root, List<RegionFile> regions, int rejectedOutOfRange,
-                             int rejectedOffHighway, boolean netherRestrictedButGeometryUnloaded) {
+                             int rejectedOffHighway, boolean netherRestrictedButGeometryUnloaded, int rejectedByBlackzone) {
     }
 
     private static Resolved resolveRoot(FabricClientCommandSource source, String dimensionFilter) {
@@ -398,7 +507,20 @@ final class ArgusCommand {
                 regions = filtered;
             }
 
-            return new Resolved(root, regions, scanResult.rejectedOutOfRange(), rejectedOffHighway, netherRestrictedButGeometryUnloaded);
+            ArgusConfig currentConfig = ArgusUploaderClientMod.config();
+            BlackzoneStore blackzones = ArgusUploaderClientMod.blackzoneStore();
+            int rejectedByBlackzone = 0;
+            List<RegionFile> afterBlackzones = new ArrayList<>();
+            for (RegionFile r : regions) {
+                if (blackzones.isBlackzoned(r.dimension(), currentConfig.layer, r)) {
+                    rejectedByBlackzone++;
+                } else {
+                    afterBlackzones.add(r);
+                }
+            }
+            regions = afterBlackzones;
+
+            return new Resolved(root, regions, scanResult.rejectedOutOfRange(), rejectedOffHighway, netherRestrictedButGeometryUnloaded, rejectedByBlackzone);
         } catch (IOException e) {
             error(source, "Scan failed: " + e.getMessage());
             return null;
@@ -428,9 +550,10 @@ final class ArgusCommand {
         }
 
         @Override
-        public void onSummary(int totalFound, int alreadyUploaded, int tooLarge, int toUpload) {
+        public void onSummary(int totalFound, int alreadyUploaded, int tooLarge, int excludedByBlackzone, int toUpload) {
             info(source, "Found " + totalFound + " region(s): " + alreadyUploaded + " already uploaded, "
-                    + tooLarge + " over the size limit, " + toUpload + " to upload.");
+                    + tooLarge + " over the size limit, " + excludedByBlackzone + " excluded by blackzone, "
+                    + toUpload + " to upload.");
             if (toUpload == 0) {
                 info(source, "Nothing to do.");
             } else {
