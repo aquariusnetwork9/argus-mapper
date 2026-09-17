@@ -83,6 +83,16 @@ public final class ArgusUploaderClientMod implements ClientModInitializer {
         } catch (IOException ignored) {
         }
 
+        // Force GuiLauncher's static init (which registers the open-gui keybinding) to run now,
+        // while we're still inside onInitializeClient() and GameOptions hasn't loaded yet - not
+        // lazily on first tick. `GuiLauncher::tick` below is a method reference, which does NOT
+        // trigger class loading at registration time; without this touch, the class only loads
+        // when the callback first fires, by which point GameOptions is already initialised and
+        // KeyBindingHelper.registerKeyBinding() throws IllegalStateException. Once that happens,
+        // the JVM marks the class erroneous and every later access throws NoClassDefFoundError
+        // for the rest of the session, permanently breaking /argus gui and the Xaero map
+        // integration. Confirmed live on 1.21.11 - see MANUAL_TEST_PLAN.md scenario 1.
+        GuiLauncher.isAvailable();
         ClientTickEvents.END_CLIENT_TICK.register(GuiLauncher::tick);
 
         // Drives NetherHighwayFilter's own geometry fetch (independent of ARD's reporter/HUD -

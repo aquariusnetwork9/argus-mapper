@@ -57,9 +57,36 @@ or by hand in `<instance>/config/argus-mapper.properties` before launch.
 
 ### 1. Loads cleanly with Xaero installed
 
-- [ ] Launch with the jar in `mods/` alongside Xaero's World Map. Client
+- [x] Launch with the jar in `mods/` alongside Xaero's World Map. Client
       reaches the main menu with no crash, no "incompatible mod set"
       screen.
+
+      **Found a real crash here, now fixed.** First launch against the
+      unmodified branch crashed at `Loading XaeroLib client 2/2!` -
+      `crash-2026-09-17_02.48.47-client.txt`:
+      `ExceptionInInitializerError` / `IllegalStateException: GameOptions
+      has already been initialised`, from `GuiLauncher.<clinit>` ->
+      `KeyBindingHelper.registerKeyBinding`. Cause: both `GuiLauncher`
+      copies (`fabric-common` and 1.21.11's own) are only touched via the
+      method reference `GuiLauncher::tick` passed to
+      `ClientTickEvents.END_CLIENT_TICK.register(...)` in
+      `ArgusUploaderClientMod.onInitializeClient()` - a method reference
+      does not trigger class loading at registration time, so the static
+      initializer (and the keybinding registration inside it) didn't run
+      until the first end-of-tick callback fired, by which point
+      `GameOptions` was already loaded and Fabric refuses new keybinding
+      registrations. Once that throws, the JVM marks the class erroneous
+      and every later touch throws `NoClassDefFoundError` for the rest of
+      the session - so this wasn't just a first-tick blip, it permanently
+      killed `/argus gui` and the Xaero right-click integration for the
+      whole run. Fixed by forcing an eager `GuiLauncher.isAvailable()`
+      touch inside `onInitializeClient()`, before the class is ever
+      referenced lazily - confirmed by rebuilding and relaunching: the
+      client now passes the same point with zero exceptions and reaches
+      the main menu cleanly. This same lazy-reference pattern is shared
+      code, so it likely also affects 1.21.4/1.21.8 even though neither
+      has been run live yet (see their rows below) - the fix is in the
+      shared `ArgusUploaderClientMod.java`, so it covers all three.
 - [ ] `/argus gui` opens the ARGUS panel; check the **Uploads** tab exists
       alongside the others.
 - [ ] Visually check the panel isn't clipped or overflowing at its current
