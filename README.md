@@ -5,11 +5,20 @@ mapping project. It scans your Xaero's World Map region files for the
 current world/server and uploads them to ARGUS's partner API
 (`https://map.argus.tools/api/partner/upload`), respecting the API's rate
 limits and batch size, and can report contribution stats (regions/chunks
-mapped, distance traveled) to a Discord webhook. You can permanently
-exclude an area from every future upload with a [blackzone](#blackzones),
-declared either from chat or directly on Xaero's own map, and on 1.21.11
-you can also trigger a scoped upload straight from a map selection - see
-[Xaero's World Map integration](#xaeros-world-map-integration). It also bundles
+mapped, distance traveled) to a Discord webhook.
+
+**The easiest way to use it is the [GUI](#gui) (`/argus gui`, or bind a
+key to it in Controls) plus the [Xaero's World Map integration](#xaeros-world-map-integration)**
+(drag-select an area on the map and right-click it) - between the two,
+every setting and every day-to-day action (setting your token, marking a
+[blackzone](#blackzones), scoping an upload to exactly the area you want)
+is a click away, with no command syntax to remember. The `/argus` chat
+commands documented under [Commands](#commands) do the exact same things
+underneath and are always available as a scriptable/always-on fallback
+(and the only option before you've set a token), but for normal play the
+GUI and the map are the more comfortable way in.
+
+It also bundles
 [Aquarius Road Department](https://github.com/aquariusnetwork9/Aquarius-Road-Department)
 (ARD) - crowdsourced nether-highway condition reporting and a hazard-ahead
 HUD - as a second, independent feature set in the same jar (see "Aquarius
@@ -42,6 +51,82 @@ off disk and makes HTTP requests. So it's split into:
   different mapping set. This module has its own copy of the adapter code
   with the handful of vanilla-touching bits (auto-detecting the current
   server, distance tracking) stubbed out rather than guessed at.
+
+## GUI
+
+The recommended way to use this mod day-to-day. Open it with `/argus gui`,
+or bind a key to it in Controls (unbound by default, listed under "ARGUS
+Mapper") - either way it opens reliably and resizes itself to fit your
+window on every 1.21.x version this mod supports. Seven tabs - General,
+Token, Servers, Stats, Uploads, Road Dept. (ARD), and Add-on API - read and
+write the exact same config objects the chat commands do, so there's no
+separate GUI-only state to fall out of sync and nothing you can only do
+from one side or the other. The **Uploads** tab is a torrent-style live
+view of the current run (aggregate progress bar, queued/done/failed
+counts, and how many were excluded by a blackzone), backed by a tracker
+that lives on the background upload run itself - it keeps updating even if
+you close and reopen the GUI mid-run, and survives a server
+disconnect/switch, since the run doesn't stop until the game does.
+
+Not available on [26.1](26.1/NOTES.md) (it shares that build's other
+omissions - see that file). Available on **1.21.4**, **1.21.8**, and
+**1.21.11** - 1.21.11 needed its own port of the GUI's widget and keybinding
+code (`1.21.11/gui-src/`) since that version's `PressableWidget` changed
+`onPress`/`renderWidget`/`drawIcon` from what 1.21.4/1.21.8 use, and its
+`KeyBinding` category parameter became a `KeyBinding.Category` object
+instead of a plain `String`. `/argus` and `/ard` chat commands are
+unaffected on every version regardless of GUI availability.
+
+Picked from three visual directions pitched up front (a vanilla-menu skin,
+a floating utility-client skin, and an original watchtower-console skin) -
+shipped as **Nightwire**, the utility-client one: dark panel, violet
+accent, pill-style toggles. Minecraft can't load a custom font without
+shipping a resource pack (not done for v1), so in-game text uses the
+default Minecraft font rather than the concept mockup's; sliders also keep
+vanilla's own groove/handle rendering rather than a fully custom one.
+
+### Add-on API
+
+Other Fabric mods can react to ARGUS Mapper without touching its
+internals, via `tools.argus.uploader.fabric.api.ArgusMapperEvents` - the
+same pattern ARD's own `LocalHazardEvents` uses:
+
+```java
+ArgusMapperEvents.UPLOAD_COMPLETED.register(summary ->
+    log.info(summary.succeeded() + " regions uploaded"));
+ArgusMapperEvents.STATS_CHANGED.register(stats ->
+    hud.update(stats.distanceTraveledBlocks()));
+```
+
+Both fire on the client thread. `UPLOAD_COMPLETED` fires once per
+`/argus upload` run; `STATS_CHANGED` fires after that and once at startup
+with whatever was already on disk, so a fresh listener doesn't have to
+wait for an upload to get an initial value.
+
+## Xaero's World Map integration
+
+The other easy way in: **1.21.11 only for now** (1.21.4/1.21.8 don't have
+this yet - they still get everything else in this README, including the
+full GUI above). Optional: the mod loads and works identically whether or
+not Xaero's World Map is installed at all - a Mixin config plugin gates
+the integration on `FabricLoader.isModLoaded("xaeroworldmap")`, so nothing
+about the rest of the mod depends on it.
+
+With Xaero's World Map installed, drag a selection on the fullscreen map
+(Xaero's own native rectangle-select) and right-click inside it for two
+extra options:
+
+- **Mark ARGUS Blackzone** - saves the selection as a blackzone (see
+  [Blackzones](#blackzones) below) covering the current dimension,
+  immediately and without leaving the map.
+- **Upload This Area to ARGUS** - scopes an upload to exactly the
+  selection: a confirm popup shows the region count and approximate size
+  before anything is sent, and only on confirmation does it start the
+  same background run `/argus upload` does - so it shows up in the
+  Uploads tab, gets the same Discord auto-report, and gets the same
+  blackzone/coordinate-cap enforcement. Answering either way returns you
+  to the map. Refuses (with a chat message, no popup) if a run is already
+  in progress or the selection has nothing eligible to upload.
 
 ## Security: the API token
 
@@ -162,38 +247,13 @@ excluded this way. Declare one two ways:
   filename like `3_-1.zip`, not block or chunk coordinates).
   `/argus blackzone list` / `/argus blackzone remove <id>` manage them.
 - **On the map** (1.21.11 only for now): see
-  [Xaero's World Map integration](#xaeros-world-map-integration) below.
+  [Xaero's World Map integration](#xaeros-world-map-integration) above.
 
 A blackzone is scoped to the layer active when it was created (multiple
 servers can reuse the same region coordinates without colliding), and
 stored locally at `<config dir>/argus-mapper-blackzones.properties` -
 excluded from `.gitignore`'s properties-file rule the same way the main
 config is, so it's never accidentally committed.
-
-## Xaero's World Map integration
-
-**1.21.11 only for now** (1.21.4/1.21.8 don't have this yet - they still
-get everything else in this README). Optional: the mod loads and works
-identically whether or not Xaero's World Map is installed at all - a
-Mixin config plugin gates the integration on
-`FabricLoader.isModLoaded("xaeroworldmap")`, so nothing about the rest of
-the mod depends on it.
-
-With Xaero's World Map installed, drag a selection on the fullscreen map
-(Xaero's own native rectangle-select) and right-click inside it for two
-extra options:
-
-- **Mark ARGUS Blackzone** - saves the selection as a blackzone (see
-  above) covering the current dimension, immediately and without leaving
-  the map.
-- **Upload This Area to ARGUS** - scopes an upload to exactly the
-  selection: a confirm popup shows the region count and approximate size
-  before anything is sent, and only on confirmation does it start the
-  same background run `/argus upload` does - so it shows up in the
-  Uploads tab, gets the same Discord auto-report, and gets the same
-  blackzone/coordinate-cap enforcement. Answering either way returns you
-  to the map. Refuses (with a chat message, no popup) if a run is already
-  in progress or the selection has nothing eligible to upload.
 
 ## Config file (`argus-mapper.properties`)
 
@@ -234,56 +294,8 @@ Beyond the API basics (`apiBaseUrl`, `token`, `layer`), notable ones:
 - `/argus blackzone add <id> <dimension> <minX> <minZ> <maxX> <maxZ>
   [label]` / `/argus blackzone list` / `/argus blackzone remove <id>` -
   manage blackzones (see "Blackzones" below).
-- `/argus gui` - opens the GUI (see below) - everything above also works
-  as a screen, not just chat commands.
-
-## GUI
-
-`/argus gui`, or bind a key to it in Controls (unbound by default, listed
-under "ARGUS Mapper"). Seven tabs - General, Token, Servers, Stats,
-Uploads, Road Dept. (ARD), and Add-on API - read and write the exact same
-config objects the chat commands do, so there's no separate GUI-only state
-to fall out of sync. The **Uploads** tab is a torrent-style live view of
-the current run (aggregate progress bar, queued/done/failed counts, and
-how many were excluded by a blackzone), backed by a tracker that lives on
-the background upload run itself - it keeps updating even if you close and
-reopen the GUI mid-run, and survives a server disconnect/switch, since the
-run doesn't stop until the game does.
-
-Not available on [26.1](26.1/NOTES.md) (it shares that build's other
-omissions - see that file). Available on **1.21.11** as of this mod's
-GUI port there - that version's `PressableWidget` changed
-`onPress`/`renderWidget`/`drawIcon` from what 1.21.4/1.21.8 use, and its
-`KeyBinding` category parameter became a `KeyBinding.Category` object
-instead of a plain `String`; see `1.21.11/gui-src/` for the version-specific
-copies this needed. `/argus` and `/ard` chat commands are unaffected on
-every version regardless of GUI availability.
-
-Picked from three visual directions pitched up front (a vanilla-menu skin,
-a floating utility-client skin, and an original watchtower-console skin) -
-shipped as **Nightwire**, the utility-client one: dark panel, violet
-accent, pill-style toggles. Minecraft can't load a custom font without
-shipping a resource pack (not done for v1), so in-game text uses the
-default Minecraft font rather than the concept mockup's; sliders also keep
-vanilla's own groove/handle rendering rather than a fully custom one.
-
-### Add-on API
-
-Other Fabric mods can react to ARGUS Mapper without touching its
-internals, via `tools.argus.uploader.fabric.api.ArgusMapperEvents` - the
-same pattern ARD's own `LocalHazardEvents` uses:
-
-```java
-ArgusMapperEvents.UPLOAD_COMPLETED.register(summary ->
-    log.info(summary.succeeded() + " regions uploaded"));
-ArgusMapperEvents.STATS_CHANGED.register(stats ->
-    hud.update(stats.distanceTraveledBlocks()));
-```
-
-Both fire on the client thread. `UPLOAD_COMPLETED` fires once per
-`/argus upload` run; `STATS_CHANGED` fires after that and once at startup
-with whatever was already on disk, so a fresh listener doesn't have to
-wait for an upload to get an initial value.
+- `/argus gui` - opens the [GUI](#gui) (see above) - everything above also
+  works as a screen, not just chat commands.
 
 ## How region files are found
 
