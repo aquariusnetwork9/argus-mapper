@@ -5,7 +5,11 @@ mapping project. It scans your Xaero's World Map region files for the
 current world/server and uploads them to ARGUS's partner API
 (`https://map.argus.tools/api/partner/upload`), respecting the API's rate
 limits and batch size, and can report contribution stats (regions/chunks
-mapped, distance traveled) to a Discord webhook. It also bundles
+mapped, distance traveled) to a Discord webhook. You can permanently
+exclude an area from every future upload with a [blackzone](#blackzones),
+declared either from chat or directly on Xaero's own map, and on 1.21.11
+you can also trigger a scoped upload straight from a map selection - see
+[Xaero's World Map integration](#xaeros-world-map-integration). It also bundles
 [Aquarius Road Department](https://github.com/aquariusnetwork9/Aquarius-Road-Department)
 (ARD) - crowdsourced nether-highway condition reporting and a hazard-ahead
 HUD - as a second, independent feature set in the same jar (see "Aquarius
@@ -131,6 +135,66 @@ verified way to check highway-adjacency at all - there, this setting instead
 excludes *all* nether regions outright while it's on, rather than silently
 skipping the check.
 
+## Blackzones
+
+A blackzone is a user-declared rectangle (dimension + region-file bounds)
+that is **never** uploaded, permanently, until you remove it yourself -
+independent of the coordinate cap and the nether highway gate above, for
+the areas you specifically don't want ARGUS to ever see rather than areas
+excluded by a general policy. Local-only: a blackzone is never sent
+anywhere, and nothing about *what* you've blackzoned - not even that a
+blackzone exists - is visible in the uploaded data itself, since the
+uploader simply never attempts those region files in the first place.
+
+Enforced twice, independently, same pattern as the coordinate cap:
+
+1. `UploadRunner`'s own filter excludes a blackzoned region before it's
+   ever queued - it never shows up in the "to upload" count.
+2. `ArgusUploadClient.upload()` - the only method that actually talks to
+   the network - refuses a blackzoned region on its own, even if
+   something else were to hand it one directly.
+
+`/argus scan` and `/argus upload` both report how many regions were
+excluded this way. Declare one two ways:
+
+- **Chat:** `/argus blackzone add <id> <dimension> <minX> <minZ> <maxX>
+  <maxZ> [label]` (region-file coordinates - the numbers in a Xaero
+  filename like `3_-1.zip`, not block or chunk coordinates).
+  `/argus blackzone list` / `/argus blackzone remove <id>` manage them.
+- **On the map** (1.21.11 only for now): see
+  [Xaero's World Map integration](#xaeros-world-map-integration) below.
+
+A blackzone is scoped to the layer active when it was created (multiple
+servers can reuse the same region coordinates without colliding), and
+stored locally at `<config dir>/argus-mapper-blackzones.properties` -
+excluded from `.gitignore`'s properties-file rule the same way the main
+config is, so it's never accidentally committed.
+
+## Xaero's World Map integration
+
+**1.21.11 only for now** (1.21.4/1.21.8 don't have this yet - they still
+get everything else in this README). Optional: the mod loads and works
+identically whether or not Xaero's World Map is installed at all - a
+Mixin config plugin gates the integration on
+`FabricLoader.isModLoaded("xaeroworldmap")`, so nothing about the rest of
+the mod depends on it.
+
+With Xaero's World Map installed, drag a selection on the fullscreen map
+(Xaero's own native rectangle-select) and right-click inside it for two
+extra options:
+
+- **Mark ARGUS Blackzone** - saves the selection as a blackzone (see
+  above) covering the current dimension, immediately and without leaving
+  the map.
+- **Upload This Area to ARGUS** - scopes an upload to exactly the
+  selection: a confirm popup shows the region count and approximate size
+  before anything is sent, and only on confirmation does it start the
+  same background run `/argus upload` does - so it shows up in the
+  Uploads tab, gets the same Discord auto-report, and gets the same
+  blackzone/coordinate-cap enforcement. Answering either way returns you
+  to the map. Refuses (with a chat message, no popup) if a run is already
+  in progress or the selection has nothing eligible to upload.
+
 ## Config file (`argus-mapper.properties`)
 
 See `config.example.properties` for the full set of fields with comments.
@@ -167,25 +231,33 @@ Beyond the API basics (`apiBaseUrl`, `token`, `layer`), notable ones:
 - `/argus discord test` - send a test message to confirm the webhook works.
 - `/argus discord report` - manually post current stats (regions
   contributed, approximate chunks, distance traveled) to Discord.
+- `/argus blackzone add <id> <dimension> <minX> <minZ> <maxX> <maxZ>
+  [label]` / `/argus blackzone list` / `/argus blackzone remove <id>` -
+  manage blackzones (see "Blackzones" below).
 - `/argus gui` - opens the GUI (see below) - everything above also works
   as a screen, not just chat commands.
 
 ## GUI
 
 `/argus gui`, or bind a key to it in Controls (unbound by default, listed
-under "ARGUS Mapper"). Six tabs - General, Token, Servers, Stats, Road
-Dept. (ARD), and Add-on API - read and write the exact same config objects
-the chat commands do, so there's no separate GUI-only state to fall out of
-sync. Not available on [26.1](26.1/NOTES.md) (it shares that build's other
-omissions - see that file), and not currently available on **1.21.11**
-either: that version's `PressableWidget` changed `onPress`/`renderWidget`/
-`drawIcon` in ways ArgusGuiScreen's widgets haven't been ported to, and its
-`KeyBinding` category parameter became a `KeyBinding.Category` record
-instead of a plain `String`. `/argus gui` on 1.21.11 replies that the GUI
-isn't available rather than doing nothing; see
-`1.21.11/gui-src/GuiLauncher.java`'s javadoc and `1.21.11/build.gradle` for
-exactly what's excluded. `/argus` and `/ard` chat commands are unaffected
-on every version.
+under "ARGUS Mapper"). Seven tabs - General, Token, Servers, Stats,
+Uploads, Road Dept. (ARD), and Add-on API - read and write the exact same
+config objects the chat commands do, so there's no separate GUI-only state
+to fall out of sync. The **Uploads** tab is a torrent-style live view of
+the current run (aggregate progress bar, queued/done/failed counts, and
+how many were excluded by a blackzone), backed by a tracker that lives on
+the background upload run itself - it keeps updating even if you close and
+reopen the GUI mid-run, and survives a server disconnect/switch, since the
+run doesn't stop until the game does.
+
+Not available on [26.1](26.1/NOTES.md) (it shares that build's other
+omissions - see that file). Available on **1.21.11** as of this mod's
+GUI port there - that version's `PressableWidget` changed
+`onPress`/`renderWidget`/`drawIcon` from what 1.21.4/1.21.8 use, and its
+`KeyBinding` category parameter became a `KeyBinding.Category` object
+instead of a plain `String`; see `1.21.11/gui-src/` for the version-specific
+copies this needed. `/argus` and `/ard` chat commands are unaffected on
+every version regardless of GUI availability.
 
 Picked from three visual directions pitched up front (a vanilla-menu skin,
 a floating utility-client skin, and an original watchtower-console skin) -
@@ -378,8 +450,10 @@ Discord embed JSON builder, and - importantly - that
 `ArgusUploadClient.upload()` refuses an out-of-range region *without
 making a network call*, not just that the scanner filters it out
 upstream. `fabric-common` and the version modules aren't unit tested
-(they're thin Minecraft-API glue); if you want coverage there it'd have to
-be an in-game manual pass, since it needs a running client.
+(they're thin Minecraft-API glue); coverage there is a manual, in-game
+pass instead, since it needs a running client - see
+[MANUAL_TEST_PLAN.md](MANUAL_TEST_PLAN.md) for the checklist covering
+blackzones, the Uploads tab, and the Xaero map integration.
 
 ## CI
 
