@@ -15,6 +15,7 @@ import tools.argus.uploader.core.ServerProfile;
 import tools.argus.uploader.core.ServerRegistry;
 import tools.argus.uploader.core.StatsStore;
 import tools.argus.uploader.core.UploadManifest;
+import tools.argus.uploader.core.UploadRunner;
 import tools.argus.uploader.core.UploadTracker;
 import tools.argus.uploader.fabric.api.ArgusMapperEvents;
 import tools.argus.uploader.fabric.gui.GuiLauncher;
@@ -36,6 +37,7 @@ public final class ArgusUploaderClientMod implements ClientModInitializer {
     private static volatile StatsStore stats = StatsStore.empty();
     private static volatile BlackzoneStore blackzoneStore = BlackzoneStore.empty();
     private static volatile UploadTracker activeUpload;
+    private static volatile UploadRunner activeRunner;
     private static final NetherHighwayFilter netherHighwayFilter = new NetherHighwayFilter();
 
     @Override
@@ -135,6 +137,18 @@ public final class ArgusUploaderClientMod implements ClientModInitializer {
 
     public static void setActiveUpload(UploadTracker tracker) {
         activeUpload = tracker;
+    }
+
+    /** The upload run currently in progress (or most recently finished), regardless of whether it
+     *  was started by {@code /argus upload} or by a Xaero map-selection "Upload This Area" click -
+     *  the single source of truth both consult before starting a new run, so the two trigger paths
+     *  can never race each other into two runs uploading at once. */
+    public static UploadRunner activeRunner() {
+        return activeRunner;
+    }
+
+    public static void setActiveRunner(UploadRunner runner) {
+        activeRunner = runner;
     }
 
     static NetherHighwayFilter netherHighwayFilter() {

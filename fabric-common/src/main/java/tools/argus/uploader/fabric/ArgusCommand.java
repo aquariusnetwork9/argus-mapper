@@ -23,18 +23,15 @@ import tools.argus.uploader.core.MapperStats;
 import tools.argus.uploader.core.UploadRunner;
 import tools.argus.uploader.core.UploadSummary;
 import tools.argus.uploader.core.UploadTracker;
-import tools.argus.uploader.core.XaeroRootFinder;
-import tools.argus.uploader.core.XaeroScanner;
 import tools.argus.uploader.fabric.api.ArgusMapperEvents;
 import tools.argus.uploader.fabric.gui.GuiLauncher;
 
 import java.io.IOException;
-import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiConsumer;
 
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.argument;
 import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
@@ -42,8 +39,6 @@ import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.lit
 final class ArgusCommand {
 
     private static final Set<String> VALID_DIMENSIONS = Set.of("overworld", "the_nether", "theend");
-
-    private static volatile UploadRunner activeRunner;
 
     private ArgusCommand() {
     }
@@ -163,7 +158,13 @@ final class ArgusCommand {
         Thread.startVirtualThread(() -> {
             try {
                 UploadManifest manifest = UploadManifest.load(ArgusUploaderClientMod.manifestPath());
-                sendDiscordReport(source, manifest);
+                sendDiscordReport(manifest, (message, isError) -> {
+                    if (isError) {
+                        error(source, message);
+                    } else {
+                        info(source, message);
+                    }
+                });
             } catch (IOException e) {
                 error(source, "Failed to read manifest: " + e.getMessage());
             }
@@ -171,11 +172,17 @@ final class ArgusCommand {
         return 1;
     }
 
-    /** Shared by the explicit /argus discord report command and the auto-report-on-completion path. */
-    static void sendDiscordReport(FabricClientCommandSource source, UploadManifest manifest) {
+    /**
+     * Shared by the explicit /argus discord report command and both upload-completion paths
+     * (chat-triggered and Xaero map-selection-triggered). Not bound to a
+     * {@link FabricClientCommandSource} since only one of those three callers has one -
+     * {@code feedback} instead receives (message, isError) and each caller adapts it to however
+     * it surfaces text (command feedback vs. a direct chat message).
+     */
+    static void sendDiscordReport(UploadManifest manifest, BiConsumer<String, Boolean> feedback) {
         ArgusConfig config = ArgusUploaderClientMod.config();
         if (config.discordWebhookUrl.isBlank()) {
-            error(source, "No Discord webhook configured. Use /argus discord sethook <url>.");
+            feedback.accept("No Discord webhook configured. Use /argus discord sethook <url>.", true);
             return;
         }
         String serverName = ArgusUploaderClientMod.registry().all().stream()
@@ -188,10 +195,29 @@ final class ArgusCommand {
                 LeaderboardReport.description(serverName),
                 LeaderboardReport.fields(manifest.size(), ArgusUploaderClientMod.stats().totalDistanceBlocks));
         if (result.success()) {
-            info(source, "Reported to Discord.");
+            feedback.accept("Reported to Discord.", false);
         } else {
-            error(source, "Discord report failed: " + (result.error() != null ? result.error() : ("HTTP " + result.statusCode())));
+            feedback.accept("Discord report failed: " + (result.error() != null ? result.error() : ("HTTP " + result.statusCode())), true);
         }
+    }
+
+    /**
+     * Shared by every upload-completion path (chat command and Xaero map-selection trigger): fires
+     * the auto Discord report (if configured) and the STATS_CHANGED/UPLOAD_COMPLETED events - so
+     * starting an upload from the map behaves identically to {@code /argus upload} once it finishes.
+     */
+    static void onUploadRunComplete(UploadManifest manifest, int succeeded, int failed, BiConsumer<String, Boolean> discordFeedback) {
+        ArgusConfig config = ArgusUploaderClientMod.config();
+        if (config.autoReportToDiscord && !config.discordWebhookUrl.isBlank() && succeeded > 0) {
+            sendDiscordReport(manifest, discordFeedback);
+        }
+        // ArgusMapperEvents promises client-thread delivery (see its javadoc); onComplete itself
+        // runs on UploadRunner's background executor, so marshal over.
+        MinecraftClient.getInstance().execute(() -> {
+            ArgusMapperEvents.UPLOAD_COMPLETED.invoker().onUploadCompleted(new UploadSummary(succeeded, failed));
+            ArgusMapperEvents.STATS_CHANGED.invoker().onStatsChanged(
+                    MapperStats.of(manifest.size(), ArgusUploaderClientMod.stats().totalDistanceBlocks));
+        });
     }
 
     private static int blackzoneList(FabricClientCommandSource source) {
@@ -315,13 +341,13 @@ final class ArgusCommand {
     }
 
     private static int scan(FabricClientCommandSource source, String dimensionFilter) {
-        Resolved resolved = resolveRoot(source, dimensionFilter);
+        RegionResolver.Resolved resolved = resolveRoot(source, dimensionFilter);
         if (resolved == null) {
             return 0;
         }
-        List<RegionFile> regions = resolved.regions;
+        List<RegionFile> regions = resolved.regions();
         long totalBytes = regions.stream().mapToLong(RegionFile::sizeBytes).sum();
-        info(source, "Root: " + resolved.root);
+        info(source, "Root: " + resolved.root());
         info(source, "Found " + regions.size() + " region file(s), " + (totalBytes / 1_000_000) + " MB total.");
         for (String dim : VALID_DIMENSIONS) {
             long count = regions.stream().filter(r -> r.dimension().equals(dim)).count();
@@ -329,18 +355,18 @@ final class ArgusCommand {
                 info(source, "  " + dim + ": " + count);
             }
         }
-        if (resolved.rejectedOutOfRange > 0) {
-            info(source, "  skipped " + resolved.rejectedOutOfRange + " region(s) outside the +/-"
+        if (resolved.rejectedOutOfRange() > 0) {
+            info(source, "  skipped " + resolved.rejectedOutOfRange() + " region(s) outside the +/-"
                     + CoordLimits.MAX_ABS_COORD + " coordinate limit.");
         }
-        if (resolved.rejectedOffHighway > 0) {
-            info(source, "  skipped " + resolved.rejectedOffHighway + " nether region(s) not near a known ARD highway.");
+        if (resolved.rejectedOffHighway() > 0) {
+            info(source, "  skipped " + resolved.rejectedOffHighway() + " nether region(s) not near a known ARD highway.");
         }
-        if (resolved.netherRestrictedButGeometryUnloaded) {
+        if (resolved.netherRestrictedButGeometryUnloaded()) {
             info(source, "  nether restriction is on but ARD highway geometry hasn't loaded for this server yet - no nether regions are eligible right now. Try again shortly, or set restrictNetherToHighways=false in " + ArgusUploaderClientMod.configPath() + " to disable (not recommended).");
         }
-        if (resolved.rejectedByBlackzone > 0) {
-            info(source, "  skipped " + resolved.rejectedByBlackzone + " region(s) covered by a blackzone (see /argus blackzone list).");
+        if (resolved.rejectedByBlackzone() > 0) {
+            info(source, "  skipped " + resolved.rejectedByBlackzone() + " region(s) covered by a blackzone (see /argus blackzone list).");
         }
         info(source, "Run /argus upload" + (dimensionFilter != null ? " " + dimensionFilter : "") + " to send these. This does not send anything yet.");
         return 1;
@@ -371,6 +397,7 @@ final class ArgusCommand {
     }
 
     private static int upload(FabricClientCommandSource source, String dimensionFilter) {
+        UploadRunner activeRunner = ArgusUploaderClientMod.activeRunner();
         if (activeRunner != null && activeRunner.isRunning()) {
             error(source, "A run is already in progress. Use /argus status or /argus cancel.");
             return 0;
@@ -380,18 +407,18 @@ final class ArgusCommand {
             error(source, "Config incomplete: set token and layer in " + ArgusUploaderClientMod.configPath() + ", then /argus reload.");
             return 0;
         }
-        Resolved resolved = resolveRoot(source, dimensionFilter);
+        RegionResolver.Resolved resolved = resolveRoot(source, dimensionFilter);
         if (resolved == null) {
             return 0;
         }
-        if (resolved.rejectedOffHighway > 0) {
-            info(source, "Excluded " + resolved.rejectedOffHighway + " nether region(s) not near a known ARD highway.");
+        if (resolved.rejectedOffHighway() > 0) {
+            info(source, "Excluded " + resolved.rejectedOffHighway() + " nether region(s) not near a known ARD highway.");
         }
-        if (resolved.netherRestrictedButGeometryUnloaded) {
+        if (resolved.netherRestrictedButGeometryUnloaded()) {
             info(source, "ARD highway geometry hasn't loaded for this server yet - no nether regions are eligible this run.");
         }
-        if (resolved.rejectedByBlackzone > 0) {
-            info(source, "Excluded " + resolved.rejectedByBlackzone + " region(s) covered by a blackzone.");
+        if (resolved.rejectedByBlackzone() > 0) {
+            info(source, "Excluded " + resolved.rejectedByBlackzone() + " region(s) covered by a blackzone.");
         }
 
         try {
@@ -401,12 +428,12 @@ final class ArgusCommand {
             UploadTracker tracker = new UploadTracker(new ChatProgressListener(source, manifest));
             ArgusUploaderClientMod.setActiveUpload(tracker);
             UploadRunner runner = new UploadRunner(client, config, manifest, tracker);
-            activeRunner = runner;
+            ArgusUploaderClientMod.setActiveRunner(runner);
             String runId = "run-" + System.currentTimeMillis();
             // Checked here too (not just inside ArgusUploadClient.upload()) so the summary the
             // player sees before anything is sent already reflects blackzones - see
             // UploadRunner.start()'s own javadoc for why this is double-enforced.
-            runner.start(resolved.regions, runId, region -> !blackzones.isBlackzoned(region.dimension(), config.layer, region));
+            runner.start(resolved.regions(), runId, region -> !blackzones.isBlackzoned(region.dimension(), config.layer, region));
             return 1;
         } catch (IOException e) {
             error(source, "Failed to start upload: " + e.getMessage());
@@ -415,7 +442,7 @@ final class ArgusCommand {
     }
 
     private static int status(FabricClientCommandSource source) {
-        UploadRunner runner = activeRunner;
+        UploadRunner runner = ArgusUploaderClientMod.activeRunner();
         if (runner == null || !runner.isRunning()) {
             info(source, "No upload in progress.");
         } else {
@@ -425,7 +452,7 @@ final class ArgusCommand {
     }
 
     private static int cancel(FabricClientCommandSource source) {
-        UploadRunner runner = activeRunner;
+        UploadRunner runner = ArgusUploaderClientMod.activeRunner();
         if (runner == null || !runner.isRunning()) {
             info(source, "No upload in progress.");
         } else {
@@ -453,78 +480,19 @@ final class ArgusCommand {
         return 1;
     }
 
-    private record Resolved(Path root, List<RegionFile> regions, int rejectedOutOfRange,
-                             int rejectedOffHighway, boolean netherRestrictedButGeometryUnloaded, int rejectedByBlackzone) {
-    }
-
-    private static Resolved resolveRoot(FabricClientCommandSource source, String dimensionFilter) {
+    private static RegionResolver.Resolved resolveRoot(FabricClientCommandSource source, String dimensionFilter) {
         if (dimensionFilter != null && !VALID_DIMENSIONS.contains(dimensionFilter)) {
             error(source, "Unknown dimension '" + dimensionFilter + "'. Valid: overworld, the_nether, theend.");
             return null;
         }
-        ArgusConfig config = ArgusUploaderClientMod.config();
-        MinecraftClient client = MinecraftClient.getInstance();
-        try {
-            Path root;
-            if (!config.xaeroRootOverride.isBlank()) {
-                root = Path.of(config.xaeroRootOverride);
-            } else {
-                String token = GameWorldContext.currentWorldToken(client);
-                List<Path> candidates = XaeroRootFinder.findCandidates(GameWorldContext.gameDir(), token);
-                if (candidates.isEmpty()) {
-                    error(source, "No Xaero world-map folder found matching '" + token + "'. Set xaeroRootOverride in the config to the exact folder and /argus reload.");
-                    return null;
-                }
-                if (candidates.size() > 1) {
-                    error(source, "Multiple candidate folders found, set xaeroRootOverride to disambiguate:");
-                    candidates.forEach(p -> error(source, "  " + p));
-                    return null;
-                }
-                root = candidates.get(0);
+        RegionResolver.Resolved resolved = RegionResolver.resolve(dimensionFilter);
+        if (resolved.isError()) {
+            for (String line : resolved.error().split("\n")) {
+                error(source, line);
             }
-            XaeroScanner.ScanResult scanResult = XaeroScanner.scan(root, config.includeCaves);
-            List<RegionFile> regions = scanResult.regions();
-            if (dimensionFilter != null) {
-                regions = regions.stream().filter(r -> r.dimension().equals(dimensionFilter)).toList();
-            }
-
-            int rejectedOffHighway = 0;
-            boolean netherRestrictedButGeometryUnloaded = false;
-            if (config.restrictNetherToHighways) {
-                NetherHighwayFilter gate = ArgusUploaderClientMod.netherHighwayFilter();
-                boolean anyNetherPresent = regions.stream().anyMatch(r -> r.dimension().equals("the_nether"));
-                if (anyNetherPresent && !gate.isGeometryLoaded()) {
-                    netherRestrictedButGeometryUnloaded = true;
-                }
-                List<RegionFile> filtered = new ArrayList<>();
-                for (RegionFile r : regions) {
-                    if (!r.dimension().equals("the_nether") || gate.regionAllowed(r)) {
-                        filtered.add(r);
-                    } else {
-                        rejectedOffHighway++;
-                    }
-                }
-                regions = filtered;
-            }
-
-            ArgusConfig currentConfig = ArgusUploaderClientMod.config();
-            BlackzoneStore blackzones = ArgusUploaderClientMod.blackzoneStore();
-            int rejectedByBlackzone = 0;
-            List<RegionFile> afterBlackzones = new ArrayList<>();
-            for (RegionFile r : regions) {
-                if (blackzones.isBlackzoned(r.dimension(), currentConfig.layer, r)) {
-                    rejectedByBlackzone++;
-                } else {
-                    afterBlackzones.add(r);
-                }
-            }
-            regions = afterBlackzones;
-
-            return new Resolved(root, regions, scanResult.rejectedOutOfRange(), rejectedOffHighway, netherRestrictedButGeometryUnloaded, rejectedByBlackzone);
-        } catch (IOException e) {
-            error(source, "Scan failed: " + e.getMessage());
             return null;
         }
+        return resolved;
     }
 
     // Upload progress callbacks fire from UploadRunner's background executor
@@ -581,16 +549,12 @@ final class ArgusCommand {
         @Override
         public void onComplete(int succeeded, int failed) {
             info(source, "Upload run finished: " + succeeded + " ok, " + failed + " failed.");
-            ArgusConfig config = ArgusUploaderClientMod.config();
-            if (config.autoReportToDiscord && !config.discordWebhookUrl.isBlank() && succeeded > 0) {
-                sendDiscordReport(source, manifest);
-            }
-            // ArgusMapperEvents promises client-thread delivery (see its javadoc); onComplete
-            // itself runs on UploadRunner's background executor, so marshal over.
-            MinecraftClient.getInstance().execute(() -> {
-                ArgusMapperEvents.UPLOAD_COMPLETED.invoker().onUploadCompleted(new UploadSummary(succeeded, failed));
-                ArgusMapperEvents.STATS_CHANGED.invoker().onStatsChanged(
-                        MapperStats.of(manifest.size(), ArgusUploaderClientMod.stats().totalDistanceBlocks));
+            onUploadRunComplete(manifest, succeeded, failed, (message, isError) -> {
+                if (isError) {
+                    error(source, message);
+                } else {
+                    info(source, message);
+                }
             });
         }
     }

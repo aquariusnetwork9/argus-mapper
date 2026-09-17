@@ -14,6 +14,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import tools.argus.uploader.core.BlackZone;
 import tools.argus.uploader.core.RegionBounds;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.fabric.MapUploadTrigger;
 import xaero.map.MapProcessor;
 import xaero.map.gui.GuiMap;
 import xaero.map.gui.IRightClickableElement;
@@ -50,19 +51,40 @@ public abstract class MixinGuiMap {
     private MapProcessor mapProcessor;
 
     @Inject(method = "getRightClickOptions", at = @At("RETURN"), remap = false)
-    private void argusMapper$addMarkBlackzoneOption(CallbackInfoReturnable<ArrayList<RightClickOption>> cir) {
+    private void argusMapper$addOptions(CallbackInfoReturnable<ArrayList<RightClickOption>> cir) {
         MapTileSelection selection = this.mapTileSelection;
         if (selection == null) {
             return;
         }
         ArrayList<RightClickOption> options = cir.getReturnValue();
         IRightClickableElement self = (IRightClickableElement) (Object) this;
+
+        options.add(new RightClickOption("argus_mapper.gui.world_map.upload_area", options.size(), self) {
+            @Override
+            public void onAction(Screen screen) {
+                argusMapper$uploadSelectedArea(selection, screen);
+            }
+        });
         options.add(new RightClickOption("argus_mapper.gui.world_map.mark_blackzone", options.size(), self) {
             @Override
             public void onAction(Screen screen) {
                 argusMapper$markBlackzone(selection);
             }
         });
+    }
+
+    @Unique
+    private void argusMapper$uploadSelectedArea(MapTileSelection selection, Screen screen) {
+        String dimension = argusMapper$currentDimension();
+        if (dimension == null) {
+            argusMapper$feedback("Could not determine the current dimension - nothing to upload.");
+            return;
+        }
+        RegionBounds bounds = new RegionBounds(
+                selection.getLeft() >> 5, selection.getTop() >> 5,
+                selection.getRight() >> 5, selection.getBottom() >> 5);
+        MapUploadTrigger.Preview preview = MapUploadTrigger.preview(dimension, bounds);
+        MapUploadTrigger.confirmAndUpload(screen, dimension, preview);
     }
 
     @Unique
