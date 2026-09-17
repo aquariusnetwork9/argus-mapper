@@ -38,7 +38,14 @@ public final class GuiLauncher {
     }
 
     public static void open() {
-        MinecraftClient.getInstance().setScreen(new ArgusGuiScreen());
+        // Deferred to the next client tick via execute(), not called inline. A chat-command
+        // trigger runs synchronously from inside ChatScreen's own Enter-key handler, and that
+        // handler closes ChatScreen (setScreen(null)) itself right after the command executes -
+        // on the same tick, before a single frame renders. Calling setScreen() inline here means
+        // that close-self clobbers our screen invisibly: init() runs, currentScreen briefly holds
+        // our screen, but render() never fires once - confirmed live via the [DEBUG] trace this
+        // replaced. Queuing it instead runs after ChatScreen's own cleanup has already happened.
+        MinecraftClient.getInstance().execute(() -> MinecraftClient.getInstance().setScreen(new ArgusGuiScreen()));
     }
 
     public static void tick(MinecraftClient client) {

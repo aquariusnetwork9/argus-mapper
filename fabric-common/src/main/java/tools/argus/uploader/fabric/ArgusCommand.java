@@ -109,10 +109,10 @@ final class ArgusCommand {
                                                                                                 IntegerArgumentType.getInteger(ctx, "minZ"),
                                                                                                 IntegerArgumentType.getInteger(ctx, "maxX"),
                                                                                                 IntegerArgumentType.getInteger(ctx, "maxZ"),
-                                                                                                StringArgumentType.getString(ctx, "label"))))))))))
+                                                                                                StringArgumentType.getString(ctx, "label")))))))))))
                         .then(literal("remove")
                                 .then(argument("id", StringArgumentType.word())
-                                        .executes(ctx -> blackzoneRemove(ctx.getSource(), StringArgumentType.getString(ctx, "id")))))))
+                                        .executes(ctx -> blackzoneRemove(ctx.getSource(), StringArgumentType.getString(ctx, "id"))))))
                 .then(literal("gui").executes(ctx -> openGui(ctx.getSource()))));
     }
 

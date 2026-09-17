@@ -31,11 +31,9 @@ import java.util.List;
  */
 public final class ArgusGuiScreen extends Screen {
 
-    // Widened from 320 to fit the "Uploads" tab added alongside the torrent-style progress view -
-    // rough font-width math says 7 tabs no longer fit at 320; not visually confirmed in-game
-    // (no way to render real Minecraft fonts in this environment), so double check this in-game.
-    private static final int PANEL_W = 360;
-    private static final int PANEL_H = 268;
+    private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Stats", "Uploads", "Road Dept.", "API"};
+    private static final int MIN_PANEL_W = 300;
+    private static final int PANEL_H_DEFAULT = 268;
     private static final int HEADER_H = 46;
     private static final int PAD = 12;
     private static final int ROW_H = 20;
@@ -54,6 +52,8 @@ public final class ArgusGuiScreen extends Screen {
     private Tab currentTab = Tab.GENERAL;
     private int panelX;
     private int panelY;
+    private int panelW;
+    private int panelH;
 
     private final List<Label> labels = new ArrayList<>();
 
@@ -71,9 +71,27 @@ public final class ArgusGuiScreen extends Screen {
 
     @Override
     protected void init() {
-        panelX = (width - PANEL_W) / 2;
-        panelY = (height - PANEL_H) / 2;
+        // Recomputed on every init(), which vanilla's Screen.resize() re-invokes on a window
+        // resize/GUI-scale change - so the panel reflows to the new window size and to however
+        // wide the tab bar actually measures, rather than the old hardcoded panelW guess that
+        // clipped the last tab or two whenever the real font metrics didn't match the guess.
+        panelW = Math.max(MIN_PANEL_W, tabBarWidth() + PAD * 2);
+        panelW = Math.min(panelW, Math.max(MIN_PANEL_W, width - PAD * 2));
+        panelH = Math.min(PANEL_H_DEFAULT, Math.max(HEADER_H + ROW_H + PAD * 2, height - PAD * 2));
+        panelX = (width - panelW) / 2;
+        panelY = (height - panelH) / 2;
         buildTab(currentTab);
+    }
+
+    /** Sum of every tab button's width plus the 10px gap between them - the same math
+     *  {@link #addTabBar} lays them out with, kept in one place so the panel is always sized to
+     *  fit the tab bar it actually renders instead of a hand-guessed constant. */
+    private int tabBarWidth() {
+        int total = 0;
+        for (String name : TAB_NAMES) {
+            total += 8 + this.textRenderer.getWidth(name) + 10;
+        }
+        return total - 10;
     }
 
     private void switchTab(Tab tab) {
@@ -99,14 +117,13 @@ public final class ArgusGuiScreen extends Screen {
     }
 
     private void addTabBar() {
-        String[] names = {"General", "Token", "Servers", "Stats", "Uploads", "Road Dept.", "API"};
         Tab[] values = Tab.values();
         int x = panelX + PAD;
         int y = panelY + 24;
         for (int i = 0; i < values.length; i++) {
             Tab t = values[i];
-            int w = 8 + this.textRenderer.getWidth(names[i]);
-            PanelButton tabBtn = new PanelButton(x, y, w, 16, Text.literal(names[i]), () -> switchTab(t))
+            int w = 8 + this.textRenderer.getWidth(TAB_NAMES[i]);
+            PanelButton tabBtn = new PanelButton(x, y, w, 16, Text.literal(TAB_NAMES[i]), () -> switchTab(t))
                     .border(0)
                     .colors(t == currentTab ? 0x00000000 : 0x00000000, t == currentTab ? ACCENT : MUTED);
             addDrawableChild(tabBtn);
@@ -122,7 +139,7 @@ public final class ArgusGuiScreen extends Screen {
 
         label("API base URL (read-only)", panelX + PAD, y, MUTED);
         y += 10;
-        TextFieldWidget apiField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, PANEL_W - PAD * 2, ROW_H, Text.empty());
+        TextFieldWidget apiField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, panelW - PAD * 2, ROW_H, Text.empty());
         apiField.setText(cfg.apiBaseUrl);
         apiField.setEditable(false);
         addDrawableChild(apiField);
@@ -130,7 +147,7 @@ public final class ArgusGuiScreen extends Screen {
 
         label("Xaero folder override (blank = auto-detect)", panelX + PAD, y, MUTED);
         y += 10;
-        TextFieldWidget xaeroField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, PANEL_W - PAD * 2, ROW_H, Text.empty());
+        TextFieldWidget xaeroField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, panelW - PAD * 2, ROW_H, Text.empty());
         xaeroField.setMaxLength(256);
         xaeroField.setText(cfg.xaeroRootOverride);
         xaeroField.setChangedListener(s -> cfg.xaeroRootOverride = s);
@@ -145,7 +162,7 @@ public final class ArgusGuiScreen extends Screen {
                 v -> v + " ms", v -> cfg.paceMillis = v);
         y = sliderRow(y, "Regions per batch", 10, 200, 10, cfg.maxPerBatch, v -> Integer.toString(v), v -> cfg.maxPerBatch = v);
 
-        int saveY = panelY + PANEL_H - PAD - ROW_H;
+        int saveY = panelY + panelH - PAD - ROW_H;
         addDrawableChild(saveButton(panelX + PAD, saveY, cfg));
         addDrawableChild(new PanelButton(panelX + PAD + 100, saveY, 90, ROW_H, Text.literal("Reload"), () -> {
             ArgusUploaderClientMod.reloadConfig();
@@ -161,13 +178,13 @@ public final class ArgusGuiScreen extends Screen {
 
         label("ARGUS partner token", panelX + PAD, y, MUTED);
         y += 10;
-        tokenField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, PANEL_W - PAD * 2 - 24, ROW_H, Text.empty());
+        tokenField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, panelW - PAD * 2 - 24, ROW_H, Text.empty());
         tokenField.setMaxLength(256);
         tokenField.setText(cfg.token);
         tokenField.setEditable(tokenRevealed);
         tokenField.setChangedListener(s -> cfg.token = s);
         addDrawableChild(tokenField);
-        addDrawableChild(new PanelButton(panelX + PANEL_W - PAD - 20, y, 20, ROW_H, Text.literal(tokenRevealed ? "-" : "o"),
+        addDrawableChild(new PanelButton(panelX + panelW - PAD - 20, y, 20, ROW_H, Text.literal(tokenRevealed ? "-" : "o"),
                 () -> {
                     tokenRevealed = !tokenRevealed;
                     switchTab(Tab.TOKEN);
@@ -178,13 +195,13 @@ public final class ArgusGuiScreen extends Screen {
 
         label("Discord webhook URL", panelX + PAD, y, MUTED);
         y += 10;
-        webhookField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, PANEL_W - PAD * 2 - 24, ROW_H, Text.empty());
+        webhookField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, panelW - PAD * 2 - 24, ROW_H, Text.empty());
         webhookField.setMaxLength(256);
         webhookField.setText(cfg.discordWebhookUrl);
         webhookField.setEditable(webhookRevealed);
         webhookField.setChangedListener(s -> cfg.discordWebhookUrl = s);
         addDrawableChild(webhookField);
-        addDrawableChild(new PanelButton(panelX + PANEL_W - PAD - 20, y, 20, ROW_H, Text.literal(webhookRevealed ? "-" : "o"),
+        addDrawableChild(new PanelButton(panelX + panelW - PAD - 20, y, 20, ROW_H, Text.literal(webhookRevealed ? "-" : "o"),
                 () -> {
                     webhookRevealed = !webhookRevealed;
                     switchTab(Tab.TOKEN);
@@ -192,7 +209,7 @@ public final class ArgusGuiScreen extends Screen {
         y += ROW_H + 6;
         label("Stored only in this device's argus-mapper.properties.", panelX + PAD, y, MUTED);
 
-        int saveY = panelY + PANEL_H - PAD - ROW_H;
+        int saveY = panelY + panelH - PAD - ROW_H;
         addDrawableChild(saveButton(panelX + PAD, saveY, cfg));
     }
 
@@ -215,7 +232,7 @@ public final class ArgusGuiScreen extends Screen {
             if (active) {
                 label("ACTIVE", panelX + PAD + 180, y + 4, ACCENT);
             } else {
-                addDrawableChild(new PanelButton(panelX + PANEL_W - PAD - 50, y, 50, ROW_H, Text.literal("Use"), () -> {
+                addDrawableChild(new PanelButton(panelX + panelW - PAD - 50, y, 50, ROW_H, Text.literal("Use"), () -> {
                     cfg.layer = p.layer();
                     persist(cfg);
                     switchTab(Tab.SERVERS);
@@ -240,7 +257,7 @@ public final class ArgusGuiScreen extends Screen {
         MapperStats stats = MapperStats.of(regions, ArgusUploaderClientMod.stats().totalDistanceBlocks);
 
         int y = top;
-        int tileW = (PANEL_W - PAD * 2 - 8 * 2) / 3;
+        int tileW = (panelW - PAD * 2 - 8 * 2) / 3;
         statTile(panelX + PAD, y, tileW, "REGIONS", Long.toString(stats.regionsContributed()));
         statTile(panelX + PAD + tileW + 8, y, tileW, "~CHUNKS", Long.toString(stats.chunksContributedApprox()));
         statTile(panelX + PAD + (tileW + 8) * 2, y, tileW, "DISTANCE", formatDistance(stats.distanceTraveledBlocks()));
@@ -263,7 +280,7 @@ public final class ArgusGuiScreen extends Screen {
             }, "argus-gui-discord-test").start();
         }));
 
-        int saveY = panelY + PANEL_H - PAD - ROW_H;
+        int saveY = panelY + panelH - PAD - ROW_H;
         addDrawableChild(saveButton(panelX + PAD, saveY, cfg));
     }
 
@@ -329,7 +346,7 @@ public final class ArgusGuiScreen extends Screen {
         y += 14;
 
         int barX = panelX + PAD;
-        int barW = PANEL_W - PAD * 2;
+        int barW = panelW - PAD * 2;
         int barH = 14;
         context.fill(barX, y, barX + barW, y + barH, FIELD_BG);
         if (total > 0) {
@@ -373,7 +390,7 @@ public final class ArgusGuiScreen extends Screen {
         y += 6;
         label("Account linking: use /ard link, then /ard token <value>.", panelX + PAD, y, MUTED);
 
-        int saveY = panelY + PANEL_H - PAD - ROW_H;
+        int saveY = panelY + panelH - PAD - ROW_H;
         addDrawableChild(new PanelButton(panelX + PAD, saveY, 100, ROW_H, Text.literal("Save"), ard::save)
                 .colors(0xFF362A5E, 0xFFB79CFF));
     }
@@ -399,7 +416,7 @@ public final class ArgusGuiScreen extends Screen {
 
     private int toggleRow(int y, String text, boolean initial, java.util.function.Consumer<Boolean> onChange) {
         label(text, panelX + PAD, y + (ROW_H - 8) / 2, TITLE_COLOR);
-        addDrawableChild(new ToggleButton(panelX + PANEL_W - PAD - 40, y, 40, ROW_H, initial, onChange));
+        addDrawableChild(new ToggleButton(panelX + panelW - PAD - 40, y, 40, ROW_H, initial, onChange));
         return y + ROW_H + ROW_GAP;
     }
 
@@ -407,7 +424,7 @@ public final class ArgusGuiScreen extends Screen {
                            java.util.function.IntFunction<String> labelFor, java.util.function.IntConsumer onChange) {
         label(text, panelX + PAD, y, MUTED);
         y += 10;
-        addDrawableChild(new LabeledSlider(panelX + PAD, y, PANEL_W - PAD * 2, ROW_H, min, max, step, initial, labelFor, onChange));
+        addDrawableChild(new LabeledSlider(panelX + PAD, y, panelW - PAD * 2, ROW_H, min, max, step, initial, labelFor, onChange));
         return y + ROW_H + ROW_GAP;
     }
 
@@ -434,8 +451,8 @@ public final class ArgusGuiScreen extends Screen {
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         context.fill(0, 0, width, height, BG_DIM);
-        context.fill(panelX, panelY, panelX + PANEL_W, panelY + PANEL_H, PANEL_BG);
-        PanelButton.drawBorder(context, panelX, panelY, PANEL_W, PANEL_H, PANEL_BORDER);
+        context.fill(panelX, panelY, panelX + panelW, panelY + panelH, PANEL_BG);
+        PanelButton.drawBorder(context, panelX, panelY, panelW, panelH, PANEL_BORDER);
         context.drawTextWithShadow(this.textRenderer, Text.literal("ARGUS Mapper"), panelX + PAD, panelY + 8, TITLE_COLOR);
 
         for (int[] r : tileRects) {
