@@ -33,11 +33,24 @@ public final class ArgusGuiScreen extends Screen {
 
     private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Stats", "Uploads", "Road Dept.", "API"};
     private static final int MIN_PANEL_W = 300;
-    private static final int PANEL_H_DEFAULT = 268;
     private static final int HEADER_H = 46;
     private static final int PAD = 12;
     private static final int ROW_H = 20;
     private static final int ROW_GAP = 4;
+
+    // Mirrors buildGeneralTab()'s own sequence of y-increments exactly (it's the tallest tab: 2
+    // fields, 2 toggles, 2 sliders) so the default panel height is derived from the real row math
+    // instead of a guessed constant - update this alongside that method if its rows ever change.
+    // Reported live: the old fixed 268 put the Save/Reload row on top of the last slider.
+    private static final int GENERAL_TAB_CONTENT_H =
+            (10 + ROW_H + ROW_GAP + 4)     // API base URL field
+                    + (10 + ROW_H + ROW_GAP + 6)   // Xaero folder override field
+                    + (ROW_H + ROW_GAP)            // toggle: include caves
+                    + (ROW_H + ROW_GAP)            // toggle: restrict nether
+                    + 4
+                    + (10 + ROW_H + ROW_GAP)       // slider: pace between uploads
+                    + (10 + ROW_H + ROW_GAP);      // slider: regions per batch
+    private static final int PANEL_H_DEFAULT = HEADER_H + PAD + GENERAL_TAB_CONTENT_H + PAD + ROW_H + PAD;
 
     private static final int BG_DIM = 0x88000000;
     private static final int PANEL_BG = 0xFF12131A;
