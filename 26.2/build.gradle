@@ -1,0 +1,67 @@
+plugins {
+    // Full id, not the short 'fabric-loom' alias 1.21.x uses - Minecraft 26.x ships unobfuscated
+    // (no Yarn/intermediary layer), and Fabric published a genuinely different plugin for that
+    // era rather than versioning the old remapping one up. Confirmed against FabricMC/fabric-docs'
+    // own reference project (reference/build.gradle), not guessed. Loom 1.18.2 is the current
+    // stable release (net.fabricmc:fabric-loom maven-metadata.xml) - the 1.18.0-alpha.21 the
+    // earlier 26.1 draft used has since been superseded by real stable releases.
+    id 'net.fabricmc.fabric-loom' version '1.18.2'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+// core/ is pure Java with zero Minecraft deps, so it's reused as-is. This module's own
+// src/main/java holds a from-scratch adapter (NOT fabric-common/, which is written against Yarn
+// mappings that don't exist for this version) - see NOTES.md.
+sourceSets {
+    main {
+        java {
+            srcDir rootProject.file('core/src/main/java')
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+    // Xaero's World Map isn't published to Maven Central - Modrinth mirrors mod jars as Maven
+    // artifacts under the maven.modrinth group.
+    maven {
+        url = 'https://api.modrinth.com/maven'
+        content {
+            includeGroup 'maven.modrinth'
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:26.2"
+    // No 'mappings' line: 26.2 ships already Mojang-mapped, nothing to remap against. Confirmed
+    // against FabricMC/fabric-docs' own reference/26.1.2 and reference/build.gradle, neither of
+    // which declare a mappings dependency at all - the earlier 26.1 draft's guess of
+    // 'mappings loom.officialMojangMappings()' was wrong; that call doesn't appear anywhere in
+    // Fabric's own real example for this era.
+    //
+    // 'implementation'/'compileOnly', not 'modImplementation'/'modCompileOnly': those Loom-special
+    // "mod-aware" configurations existed to remap a mod's own references into the project's
+    // mappings at resolve time. With no remap step at all in the unobfuscated era, they're gone -
+    // every dependency here, including Xaero, uses the plain Gradle configurations.
+    implementation "net.fabricmc:fabric-loader:0.19.5"
+    implementation "net.fabricmc.fabric-api:fabric-api:0.160.0+26.2"
+    // Optional compat, not a hard requirement - ArgusXaeroMixinPlugin gates the Xaero mixins on
+    // FabricLoader.isModLoaded("xaeroworldmap") so the rest of the mod works fine without it.
+    compileOnly('maven.modrinth:xaeros-world-map:fabric-26.2-1.46.1') { transitive = false }
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filteringCharset 'UTF-8'
+    filesMatching('fabric.mod.json') {
+        expand version: project.version
+    }
+}

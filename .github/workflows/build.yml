@@ -63,13 +63,14 @@ jobs:
           name: argus-mapper-${{ matrix.mcVersion }}
           path: ${{ matrix.mcVersion }}/build/libs/*.jar
 
-  build-26-1:
-    name: Build 26.1 (best-effort, unverified - see 26.1/NOTES.md)
+  build-26-2:
+    name: Build 26.2
     runs-on: ubuntu-latest
-    # This module's mappings/Loom setup could not be compile-tested when it
-    # was written (see 26.1/NOTES.md) - a failure here is expected until
-    # someone verifies it against the real 26.1 toolchain, and must never
-    # block the 1.21.x builds above, which are real and working.
+    # Module renamed from 26.1 to 26.2 and ported for real (Xaero right-click integration,
+    # region overlay, blackzones, upload tracking - all verified live) - see 26.2/NOTES.md.
+    # Still continue-on-error while the actual upload/overlay flow isn't yet confirmed live
+    # end-to-end (only the right-click menu and its labels are), so it can't block the 1.21.x
+    # builds/release above if something in that unconfirmed path turns out broken.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
@@ -80,13 +81,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 9.7.0
-      - run: gradle --configure-on-demand ':26.1:build'
+      - run: gradle --configure-on-demand ':26.2:build'
       - name: Upload mod jar
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: argus-mapper-26.1
-          path: 26.1/build/libs/*.jar
+          name: argus-mapper-26.2
+          path: 26.2/build/libs/*.jar
 
   release:
     name: Publish GitHub Release
@@ -94,7 +95,7 @@ jobs:
     # Only for an actual version tag (git tag vX.Y.Z && git push origin vX.Y.Z)
     # - a plain push to main builds and tests but never publishes a release.
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [core-tests, build-1-21-x, build-26-1]
+    needs: [core-tests, build-1-21-x, build-26-2]
     permissions:
       contents: write
     steps:
@@ -118,14 +119,14 @@ jobs:
       # could never be used against it. See build-1-21-x's own comment above for the full story.
       - name: Build 1.21.11 jar at release version
         run: gradle --configure-on-demand ':1.21.11:build' -Pversion=${{ steps.ver.outputs.version }}
-      - name: Build 26.1 jar at release version (best-effort, unverified)
+      - name: Build 26.2 jar at release version
         continue-on-error: true
-        run: gradle --configure-on-demand ':26.1:build' -Pversion=${{ steps.ver.outputs.version }}
+        run: gradle --configure-on-demand ':26.2:build' -Pversion=${{ steps.ver.outputs.version }}
       - name: Collect jars
         run: |
           mkdir -p dist
           cp 1.21.11/build/libs/*.jar dist/ 2>/dev/null || true
-          cp 26.1/build/libs/*.jar dist/ 2>/dev/null || true
+          cp 26.2/build/libs/*.jar dist/ 2>/dev/null || true
           ls -la dist
       - name: Refuse to publish an incomplete release
         run: |

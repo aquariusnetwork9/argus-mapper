@@ -44,13 +44,13 @@ off disk and makes HTTP requests. So it's split into:
   compiled jar; they just add `core/src/main/java` and
   `fabric-common/src/main/java` as extra source directories, so there's
   only one copy of the logic to maintain and no jar-in-jar complexity.
-- **`26.1/`** - **best-effort scaffold, not verified.** See
-  [26.1/NOTES.md](26.1/NOTES.md) before relying on it. 26.1 is Fabric's
-  first Mojang-mappings, non-obfuscated release (shipped 2026-03-14) and
-  every existing mod needs at least a recompile against a completely
-  different mapping set. This module has its own copy of the adapter code
-  with the handful of vanilla-touching bits (auto-detecting the current
-  server, distance tracking) stubbed out rather than guessed at.
+- **`26.2/`** - ported and live-tested against Minecraft 26.x's Mojang
+  mappings (no more Yarn/obfuscation on this line - see
+  [26.2/NOTES.md](26.2/NOTES.md) for the mapping differences that tripped
+  up the port). Full `/argus` command tree, blackzones, and Xaero World
+  Map's right-click integration + region overlay all work. Still missing
+  the GUI, ARD, and a real (non-stubbed) nether-highway check - see that
+  file for what's deferred and why.
 
 ## GUI
 
@@ -68,8 +68,8 @@ that lives on the background upload run itself - it keeps updating even if
 you close and reopen the GUI mid-run, and survives a server
 disconnect/switch, since the run doesn't stop until the game does.
 
-Not available on [26.1](26.1/NOTES.md) (it shares that build's other
-omissions - see that file). Available on **1.21.4**, **1.21.8**, and
+Not available on [26.2](26.2/NOTES.md) yet (see that file for why).
+Available on **1.21.4**, **1.21.8**, and
 **1.21.11** - 1.21.11 needed its own port of the GUI's widget and keybinding
 code (`1.21.11/gui-src/`) since that version's `PressableWidget` changed
 `onPress`/`renderWidget`/`drawIcon` from what 1.21.4/1.21.8 use, and its
@@ -223,7 +223,7 @@ geometry simply hasn't loaded. Overworld and end uploads are completely
 unaffected either way. Set `restrictNetherToHighways=false` in the config to
 disable this (not recommended).
 
-The [26.1](26.1/NOTES.md) build does not bundle ARD (see below), so it has no
+The [26.2](26.2/NOTES.md) build does not bundle ARD (see below), so it has no
 verified way to check highway-adjacency at all - there, this setting instead
 excludes *all* nether regions outright while it's on, rather than silently
 skipping the check.
@@ -407,14 +407,14 @@ files (`HighwayConditionsFabricClient.java` and
 `command/HighwayConditionsCommand.java`) live per-version in each MC folder's
 own `ard-src/`; everything else is one shared copy in `ard-common/`.
 
-**Not included in the 26.1 build**: ARD itself has no 26.1 port, and porting
-its considerably larger vanilla-API surface (HUD registration, the Mojang
-session service, Baritone reflection) to that unverified toolchain would
-compound 26.1's existing risk far more than this project's own thin adapter
-layer already does (see [26.1/NOTES.md](26.1/NOTES.md)). 26.1 gets none of
-the `/ard` commands or HUD, and its nether privacy gate falls back to
-excluding all nether regions outright (see above) rather than checking
-highway-adjacency it has no verified way to check.
+**Not included in the 26.2 build**: ARD itself has no 26.2 port yet, and its
+considerably larger vanilla-API surface (HUD registration, the Mojang
+session service, Baritone reflection) is a separate, later port from the
+Xaero World Map integration 26.2 already has (see
+[26.2/NOTES.md](26.2/NOTES.md)). 26.2 gets none of the `/ard` commands or
+HUD, and its nether privacy gate falls back to excluding all nether regions
+outright (see above) rather than checking highway-adjacency it has no
+verified way to check.
 
 ## Discord
 
@@ -491,11 +491,15 @@ blackzones, the Uploads tab, and the Xaero map integration.
 
 - **Core unit tests** - actually executes the test suite above and
   uploads the report as a build artifact.
-- **Build 1.21.4 / 1.21.8 / 1.21.11** - real builds, each uploading its mod
-  jar as an artifact.
-- **Build 26.1** - best-effort, `continue-on-error: true` so a failure
-  here (expected until someone verifies the toolchain - see
-  [26.1/NOTES.md](26.1/NOTES.md)) never blocks the real builds above.
+- **Build 1.21.11** - a real build, uploading its mod jar as an artifact.
+  1.21.4 and 1.21.8 are no longer built/released here as of v0.3.0: 6b6t
+  (the actual target server) now requires 1.21.11+ to join at all, so a
+  jar for either older version could never be used against it. Both
+  modules still exist and still compile locally (`gradle :1.21.4:build`).
+- **Build 26.2** - `continue-on-error: true` so a failure here never
+  blocks the 1.21.11 build/release above, since the full upload/overlay
+  flow isn't yet confirmed live end-to-end on this version - see
+  [26.2/NOTES.md](26.2/NOTES.md).
 
 No Gradle wrapper is committed - CI installs Gradle directly via
 `gradle/actions/setup-gradle`'s `gradle-version` input, and
@@ -517,7 +521,7 @@ ever actually verified against a real build until it was fixed.)
 
 Pushing a `v*` tag (e.g. `git tag v0.2.0 && git push origin v0.2.0`) runs
 the full build/test matrix against that commit and, if it's green, a
-`release` job rebuilds the three real 1.21.x jars (and 26.1's, best-effort)
+`release` job rebuilds the 1.21.11 jar (and 26.2's, best-effort)
 with `-Pversion=<tag without the leading v>` so each jar's own
 `fabric.mod.json` reports the version it actually shipped under, then
 publishes a GitHub Release with all of them attached via `gh release
@@ -532,5 +536,5 @@ Each version subdirectory is a standard Fabric Loom project. Without a
 committed wrapper, either open the repo root in an IDE with Gradle support
 (it'll offer to set one up), or install Gradle yourself and run e.g.
 `gradle :1.21.11:build` from the repo root. You'll need the JDK each
-module's `build.gradle` specifies (21 for the 1.21.x line, 25 for 26.1) -
+module's `build.gradle` specifies (21 for the 1.21.x line, 25 for 26.2) -
 or let the foojay resolver plugin fetch it automatically.
