@@ -413,7 +413,10 @@ public final class ArgusGuiScreen extends Screen {
     // ---------------------------------------------------------------- API
 
     private void buildApiTab(int top) {
+        ArgusConfig cfg = ArgusUploaderClientMod.config();
         int y = top;
+        y = toggleRow(y, "Let other mods react to this mod's events", cfg.enableAddonApi, v -> cfg.enableAddonApi = v);
+        y += 6;
         label("Other Fabric mods can react to ARGUS Mapper", panelX + PAD, y, TITLE_COLOR);
         y += 12;
         label("without touching its internals:", panelX + PAD, y, TITLE_COLOR);
@@ -425,6 +428,9 @@ public final class ArgusGuiScreen extends Screen {
         label("Same pattern as ARD's own LocalHazardEvents.", panelX + PAD, y, MUTED);
         y += 20;
         statTile(panelX + PAD, y, 140, "ADD-ONS CONNECTED", "-");
+
+        int saveY = panelY + panelH - PAD - ROW_H;
+        addDrawableChild(saveButton(panelX + PAD, saveY, cfg));
     }
 
     // ---------------------------------------------------------------- shared helpers

@@ -216,12 +216,15 @@ final class ArgusCommand {
             sendDiscordReport(manifest, discordFeedback);
         }
         // ArgusMapperEvents promises client-thread delivery (see its javadoc); onComplete itself
-        // runs on UploadRunner's background executor, so marshal over.
-        MinecraftClient.getInstance().execute(() -> {
-            ArgusMapperEvents.UPLOAD_COMPLETED.invoker().onUploadCompleted(new UploadSummary(succeeded, failed));
-            ArgusMapperEvents.STATS_CHANGED.invoker().onStatsChanged(
-                    MapperStats.of(manifest.size(), ArgusUploaderClientMod.stats().totalDistanceBlocks));
-        });
+        // runs on UploadRunner's background executor, so marshal over. Gated on enableAddonApi -
+        // see ArgusConfig's own javadoc for what that toggle does and doesn't protect against.
+        if (config.enableAddonApi) {
+            MinecraftClient.getInstance().execute(() -> {
+                ArgusMapperEvents.UPLOAD_COMPLETED.invoker().onUploadCompleted(new UploadSummary(succeeded, failed));
+                ArgusMapperEvents.STATS_CHANGED.invoker().onStatsChanged(
+                        MapperStats.of(manifest.size(), ArgusUploaderClientMod.stats().totalDistanceBlocks));
+            });
+        }
     }
 
     private static int blackzoneList(FabricClientCommandSource source) {

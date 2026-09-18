@@ -71,10 +71,12 @@ public final class ArgusUploaderClientMod implements ClientModInitializer {
 
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> ArgusCommand.register(dispatcher));
 
-        try {
-            long regions = UploadManifest.load(manifestPath).size();
-            ArgusMapperEvents.STATS_CHANGED.invoker().onStatsChanged(MapperStats.of(regions, stats.totalDistanceBlocks));
-        } catch (IOException ignored) {
+        if (config.enableAddonApi) {
+            try {
+                long regions = UploadManifest.load(manifestPath).size();
+                ArgusMapperEvents.STATS_CHANGED.invoker().onStatsChanged(MapperStats.of(regions, stats.totalDistanceBlocks));
+            } catch (IOException ignored) {
+            }
         }
 
         // Best-effort auto-detect: only announces a real match or an ambiguity warning, never a

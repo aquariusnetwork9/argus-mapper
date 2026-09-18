@@ -121,11 +121,22 @@ Both fire on the client thread. `UPLOAD_COMPLETED` fires once per
 with whatever was already on disk, so a fresh listener doesn't have to
 wait for an upload to get an initial value.
 
+Toggleable: `enableAddonApi` in the config (or the API tab in the GUI),
+default on. When off, neither event ever fires, so no other mod's
+registered listener runs, regardless of whether it called `.register()`
+itself. Worth being precise about what this does and doesn't protect
+against: it's a switch on ARGUS Mapper's own two events (upload counts,
+aggregate distance/region stats - neither ever carried live player
+position), not a sandbox. Any mod sharing the same JVM already has full,
+direct access to the player's live position via vanilla Minecraft's own
+APIs, with no dependency on ARGUS Mapper at all - this toggle can't change
+that, because nothing could short of the game itself restricting mod
+capabilities.
+
 ## Xaero's World Map integration
 
-The other easy way in: **1.21.11 only for now** (1.21.4/1.21.8 don't have
-this yet - they still get everything else in this README, including the
-full GUI above). Optional: the mod loads and works identically whether or
+The other easy way in, available on every version this mod supports.
+Optional: the mod loads and works identically whether or
 not Xaero's World Map is installed at all - a Mixin config plugin gates
 the integration on `FabricLoader.isModLoaded("xaeroworldmap")`, so nothing
 about the rest of the mod depends on it.
