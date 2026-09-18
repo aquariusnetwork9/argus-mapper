@@ -77,10 +77,12 @@ public final class ArgusUploaderClientMod implements ClientModInitializer {
         // Give a fresh add-on listener an initial value instead of making it wait for the first
         // upload - best-effort; a manifest read failure here just means the first real upload's
         // own STATS_CHANGED fire is the first one, not a fatal init error.
-        try {
-            long regions = UploadManifest.load(manifestPath).size();
-            ArgusMapperEvents.STATS_CHANGED.invoker().onStatsChanged(MapperStats.of(regions, stats.totalDistanceBlocks));
-        } catch (IOException ignored) {
+        if (config.enableAddonApi) {
+            try {
+                long regions = UploadManifest.load(manifestPath).size();
+                ArgusMapperEvents.STATS_CHANGED.invoker().onStatsChanged(MapperStats.of(regions, stats.totalDistanceBlocks));
+            } catch (IOException ignored) {
+            }
         }
 
         // Force GuiLauncher's static init (which registers the open-gui keybinding) to run now,

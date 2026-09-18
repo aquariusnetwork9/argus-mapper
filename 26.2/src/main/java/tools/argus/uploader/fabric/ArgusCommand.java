@@ -208,11 +208,15 @@ final class ArgusCommand {
         if (config.autoReportToDiscord && !config.discordWebhookUrl.isBlank() && succeeded > 0) {
             sendDiscordReport(manifest, discordFeedback);
         }
-        Minecraft.getInstance().execute(() -> {
-            ArgusMapperEvents.UPLOAD_COMPLETED.invoker().onUploadCompleted(new UploadSummary(succeeded, failed));
-            ArgusMapperEvents.STATS_CHANGED.invoker().onStatsChanged(
-                    MapperStats.of(manifest.size(), ArgusUploaderClientMod.stats().totalDistanceBlocks));
-        });
+        // Gated on enableAddonApi - see ArgusConfig's own javadoc for what that toggle does and
+        // doesn't protect against.
+        if (config.enableAddonApi) {
+            Minecraft.getInstance().execute(() -> {
+                ArgusMapperEvents.UPLOAD_COMPLETED.invoker().onUploadCompleted(new UploadSummary(succeeded, failed));
+                ArgusMapperEvents.STATS_CHANGED.invoker().onStatsChanged(
+                        MapperStats.of(manifest.size(), ArgusUploaderClientMod.stats().totalDistanceBlocks));
+            });
+        }
     }
 
     private static int blackzoneList(FabricClientCommandSource source) {

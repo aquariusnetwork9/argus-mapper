@@ -38,6 +38,15 @@ public final class ArgusConfig {
     public String discordApplicationId = "";
     public boolean enableRichPresence = false;
 
+    // Gates ArgusMapperEvents (see that class's javadoc) - when false, UPLOAD_COMPLETED/
+    // STATS_CHANGED are never invoked, so no other mod's registered listener ever fires,
+    // regardless of whether it called .register() itself. Defaults to true (matches existing
+    // behavior; this add-on surface predates the toggle). Note what this can't do: any mod in the
+    // same JVM can already read the player's live position directly from vanilla Minecraft APIs
+    // with no dependency on this mod at all - this toggle only controls ARGUS Mapper's own two
+    // events (upload counts, aggregate stats), neither of which ever carried live position.
+    public boolean enableAddonApi = true;
+
     public boolean isUsable() {
         return !token.isBlank() && !layer.isBlank();
     }
@@ -66,6 +75,7 @@ public final class ArgusConfig {
         cfg.autoReportToDiscord = Boolean.parseBoolean(p.getProperty("autoReportToDiscord", String.valueOf(cfg.autoReportToDiscord)));
         cfg.discordApplicationId = p.getProperty("discordApplicationId", cfg.discordApplicationId);
         cfg.enableRichPresence = Boolean.parseBoolean(p.getProperty("enableRichPresence", String.valueOf(cfg.enableRichPresence)));
+        cfg.enableAddonApi = Boolean.parseBoolean(p.getProperty("enableAddonApi", String.valueOf(cfg.enableAddonApi)));
         return cfg;
     }
 
@@ -85,6 +95,7 @@ public final class ArgusConfig {
         p.setProperty("autoReportToDiscord", String.valueOf(autoReportToDiscord));
         p.setProperty("discordApplicationId", discordApplicationId);
         p.setProperty("enableRichPresence", String.valueOf(enableRichPresence));
+        p.setProperty("enableAddonApi", String.valueOf(enableAddonApi));
         if (file.getParent() != null) {
             Files.createDirectories(file.getParent());
         }

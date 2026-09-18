@@ -41,6 +41,7 @@ class ArgusConfigTest {
         cfg.autoReportToDiscord = true;
         cfg.discordApplicationId = "123";
         cfg.enableRichPresence = true;
+        cfg.enableAddonApi = false;
         cfg.save(file);
 
         ArgusConfig reloaded = ArgusConfig.load(file);
@@ -57,6 +58,7 @@ class ArgusConfigTest {
         assertTrue(reloaded.autoReportToDiscord);
         assertEquals("123", reloaded.discordApplicationId);
         assertTrue(reloaded.enableRichPresence);
+        assertFalse(reloaded.enableAddonApi);
         assertTrue(reloaded.isUsable());
     }
 
