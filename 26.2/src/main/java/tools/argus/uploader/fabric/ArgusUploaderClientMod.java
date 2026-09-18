@@ -2,6 +2,7 @@ package tools.argus.uploader.fabric;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
@@ -15,13 +16,14 @@ import tools.argus.uploader.core.UploadManifest;
 import tools.argus.uploader.core.UploadRunner;
 import tools.argus.uploader.core.UploadTracker;
 import tools.argus.uploader.fabric.api.ArgusMapperEvents;
+import tools.argus.uploader.fabric.gui.GuiLauncher;
 
 import java.io.IOException;
 import java.nio.file.Path;
 
 /**
  * 26.2's copy of fabric-common's ArgusUploaderClientMod, minus the pieces not yet ported here
- * (GUI, real ARD-backed nether highway geometry, PlayerDistanceTracker) - see this module's own
+ * (real ARD-backed nether highway geometry, PlayerDistanceTracker) - see this module's own
  * NOTES.md / build.gradle comments for what's deferred and why.
  */
 public final class ArgusUploaderClientMod implements ClientModInitializer {
@@ -87,11 +89,16 @@ public final class ArgusUploaderClientMod implements ClientModInitializer {
             }
         });
 
-        // Not wired here (see NOTES.md): GUI (/argus gui - GuiLauncher is a no-op stub),
-        // PlayerDistanceTracker, and real ARD-backed nether highway geometry
-        // (NetherHighwayFilter is a fail-closed stub - see its own javadoc). Everything else -
-        // /argus's full command tree, blackzones, config, server registry, stats, Discord
-        // reporting, and Xaero World Map right-click integration + region overlay - works.
+        // Forces GuiLauncher's static init (which registers the keybinding) to run now, before
+        // GameOptions loads - same hazard as every other version's GuiLauncher, see its own
+        // javadoc for the NoClassDefFoundError this avoids.
+        GuiLauncher.isAvailable();
+        ClientTickEvents.END_CLIENT_TICK.register(GuiLauncher::tick);
+
+        // Not wired here (see NOTES.md): PlayerDistanceTracker and real ARD-backed nether highway
+        // geometry (NetherHighwayFilter is a fail-closed stub - see its own javadoc). Everything
+        // else - the full command tree, blackzones, config, server registry, stats, Discord
+        // reporting, Xaero World Map integration + region overlay, and the GUI - works.
     }
 
     public static ArgusConfig config() {
