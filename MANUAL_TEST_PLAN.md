@@ -196,35 +196,53 @@ past one). 1.21.11 only, same as the rest of this integration.
 
       **Confirmed live** - same transform as above, verified panning and
       zooming through several levels.
-- [ ] Run `/argus upload` or "Upload This Area to ARGUS" over a
+- [x] Run `/argus upload` or "Upload This Area to ARGUS" over a
       non-blackzoned, non-uploaded area - the region(s) should flash
       amber while `UploadTracker` reports them QUEUED/UPLOADING, then
-      settle to green once the tracker reports DONE (a fake token failing
-      at the network step is expected and fine here - see Config setup;
-      that lands as FAILED, which the overlay leaves uncolored rather than
-      guessing).
+      settle to green once the tracker reports DONE.
 
-      **Not yet clicked through** - the classification data path
-      (`RegionOverlayState`) reuses the same `BlackzoneStore`/
-      `UploadTracker`/`UploadManifest` APIs already proven elsewhere in
-      this codebase, and the draw call is the exact same
-      transform+`DrawContext.fill` path the blackzone outline above just
-      confirmed - so this is believed to work, but "believed" isn't
-      "checked, per this document's own rule.
-- [ ] Restart the client after an upload completes (or one from a past
-      session, if the manifest already has entries for this account) and
-      reopen the map - previously-uploaded regions should still show
-      green, read back from `<config dir>/argus-mapper-manifest.txt`
-      rather than only this session's tracker.
+      **Confirmed live against a real 6b6t session**, but this is also
+      where a real, separate scanner bug surfaced: an earlier version of
+      this fix let `XaeroScanner` match `.xwmc` render-cache files as if
+      they were real regions (see its own comment on `REGION_FILE`), so
+      the first live attempt tried to upload one and got HTTP 400
+      `render_failed` from ARGUS's own backend, which correctly only
+      accepts real `.zip` saves. Fixed by reverting the scanner to
+      `.zip`-only - real region files (confirmed against the same 6b6t
+      session's own `xaero/world-map/Multiplayer_6b6t.cc/null/mw$default/`
+      folder) upload and complete normally, and the amber-to-green
+      transition works as designed.
+- [x] Restart the client after an upload completes and reopen the map -
+      previously-uploaded regions should still show green, read back from
+      `<config dir>/argus-mapper-manifest.txt` rather than only this
+      session's tracker.
 
-      **Known caveat:** this reads the manifest using the same
-      `<regionX>_<regionZ>.zip` filename convention `XaeroScanner` uses
-      everywhere else - which currently never matches the `.xwmc` cache
-      files recent Xaero World Map versions actually write (a real,
-      separate, already-known bug - see `XaeroScanner`). Until that's
-      fixed, don't expect this checkbox to pass on a fresh manifest either
-      - the *this-session* amber-to-green flow above doesn't depend on it
-      and should still work regardless.
+      **Confirmed live** once the `.zip`-only scanner fix above landed -
+      `RegionOverlayState`'s manifest lookup uses the same `.zip` filename
+      convention as everywhere else in this codebase, consistently.
+
+**Also found during this same live pass, now fixed:** `/argus cancel` could
+go unanswered for minutes. `UploadRunner` processes one region at a time on
+a single background thread and only checked the cancellation flag *between*
+attempts - if the in-flight HTTP call to ARGUS was slow (a flaky connection,
+a slow response), nothing else on that thread could run, including noticing
+a cancel request, until that call resolved or timed out (up to ~60s, times
+up to `maxRetries` retries on a timeout). Confirmed live: `/argus cancel`
+twice, a minute apart, while `/argus status` stayed at a fixed "5 / 8" the
+whole time.
+
+Fixed by making the request itself abortable: `ArgusUploadClient.upload`
+now runs on `HttpClient.sendAsync`, and `UploadRunner` holds the resulting
+`CompletableFuture` so `cancel()` can call `.cancel(true)` on whatever's
+actually in flight, immediately, instead of only ever preventing the *next*
+one. `UploadRunnerCancelTest` (core, real loopback `HttpServer` that never
+responds) is a permanent regression test for this - it can only pass if
+cancellation genuinely aborts the in-flight request, not just skips ahead.
+
+- [ ] Live re-check with a real slow/flaky connection: start an upload,
+      `/argus cancel` mid-request, confirm `/argus status` flips to "No
+      upload in progress" within a second or two rather than however long
+      that one request would have taken.
 
 ## Known gaps going in (not yet fixed, just documented)
 

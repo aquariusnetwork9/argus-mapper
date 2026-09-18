@@ -11,6 +11,17 @@ import java.util.stream.Stream;
 
 public final class XaeroScanner {
 
+    // .zip is the real, canonical region save Xaero writes directly under a world's main
+    // folder - confirmed live against an actual 6b6t session, not guessed. Xaero *also* keeps its
+    // own multi-zoom-level render cache alongside it, under numbered cache/cache_1/cache_2/...
+    // subfolders, as .xwmc (and .xwmc.outdated for a superseded entry) - a completely separate,
+    // disposable thing, never "promoted" into a .zip. An earlier version of this pattern also
+    // matched .xwmc, on the mistaken assumption (from a singleplayer test world that had never
+    // triggered a real save yet, so only cache files existed at all) that Xaero had switched
+    // formats entirely - that caused /argus upload to also pick up cache files and send them,
+    // which ARGUS's own backend correctly rejects (HTTP 400 render_failed: "doesn't match Xaero's
+    // <regionX>_<regionZ>.zip pattern") since they were never real region data to begin with.
+    // .zip only, on purpose.
     private static final Pattern REGION_FILE = Pattern.compile("^(-?\\d+)_(-?\\d+)\\.zip$");
 
     private XaeroScanner() {

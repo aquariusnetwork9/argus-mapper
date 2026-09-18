@@ -314,6 +314,16 @@ named `DIM-1` (nether) and `DIM1` (end); anything else defaults to overworld.
 A `caves/` branch holds cave-mode regions and is skipped unless
 `includeCaves=true`.
 
+Xaero also keeps its own multi-zoom-level render cache alongside the real
+`.zip` saves, as `.xwmc` (and `.xwmc.outdated` for a superseded entry) under
+numbered `cache`/`cache_1`/`cache_2`/... subfolders - confirmed live against
+a real 6b6t session, not guessed. That's a disposable rendering artifact,
+never real region data (it doesn't get "promoted" into a `.zip`), and
+`XaeroScanner` never treats it as such - a version of this mod briefly did,
+on the mistaken assumption that Xaero had switched formats entirely, and
+that caused a real upload to fail against ARGUS's own backend (HTTP 400
+`render_failed`, since a `.xwmc` filename isn't a real region save at all).
+
 **Caveat:** Xaero sanitizes server addresses / world names when building
 these folder names, and the exact rule isn't public and varies by version.
 Rather than guess it exactly, the scanner does a fuzzy (case-insensitive

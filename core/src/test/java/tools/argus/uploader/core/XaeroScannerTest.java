@@ -35,6 +35,23 @@ class XaeroScannerTest {
     }
 
     @Test
+    void ignoresXwmcRenderCacheFilesEvenAlongsideRealZips(@TempDir Path root) throws IOException {
+        // Regression test: .xwmc/.xwmc.outdated under Xaero's own numbered cache/cache_1/...
+        // subfolders are its internal render cache, not real region data, even when they sit
+        // right next to (and share coordinates with) a real .zip save - see this class's own
+        // comment on REGION_FILE for how mistakenly treating them as real once caused a live
+        // upload to a real server to fail.
+        write(root.resolve("0_0.zip"));
+        write(root.resolve("cache").resolve("1").resolve("0_0.xwmc"));
+        write(root.resolve("cache_1").resolve("0_0.xwmc.outdated"));
+
+        XaeroScanner.ScanResult result = XaeroScanner.scan(root, false);
+
+        assertEquals(1, result.regions().size(), "only the real .zip should be found, not the render cache copies");
+        assertEquals("0_0.zip", result.regions().get(0).filename());
+    }
+
+    @Test
     void includesCavesWhenRequested(@TempDir Path root) throws IOException {
         write(root.resolve("caves").resolve("-2147483648").resolve("9_9.zip"));
 

@@ -69,6 +69,9 @@ public final class RegionOverlayState {
                     }
                 }
             }
+            // The manifest key is dimension|<actual filename> - XaeroScanner (and therefore every
+            // real upload) only ever produces a .zip filename, see its own comment on
+            // REGION_FILE for why .xwmc is deliberately not included here too.
             if (uploadedKeys().contains(dimension + "|" + regionX + "_" + regionZ + ".zip")) {
                 return Category.UPLOADED;
             }
