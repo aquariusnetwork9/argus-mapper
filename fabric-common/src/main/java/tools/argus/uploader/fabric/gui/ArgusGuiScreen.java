@@ -152,10 +152,15 @@ public final class ArgusGuiScreen extends Screen {
 
         label("API base URL (read-only)", panelX + PAD, y, MUTED);
         y += 10;
-        TextFieldWidget apiField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, panelW - PAD * 2, ROW_H, Text.empty());
-        apiField.setText(cfg.apiBaseUrl);
-        apiField.setEditable(false);
-        addDrawableChild(apiField);
+        // A plain label, not a TextFieldWidget - a fixed-width text field showing a
+        // longer-than-it-looks URL from position 0 with no visual cue that it's cut off (no
+        // ellipsis, no scrollbar) silently hid the back half of this value - reported live
+        // ("reads .../api/part" instead of the real .../api/partner/upload) even though the
+        // actual config value on disk was always correct. A label never clips (it just draws
+        // past the panel edge on an unusually narrow window, which is still fully readable,
+        // unlike silent truncation) and matches how every other read-only value in this GUI is
+        // already shown.
+        label(cfg.apiBaseUrl, panelX + PAD, y, TITLE_COLOR);
         y += ROW_H + ROW_GAP + 4;
 
         label("Xaero folder override (blank = auto-detect)", panelX + PAD, y, MUTED);
