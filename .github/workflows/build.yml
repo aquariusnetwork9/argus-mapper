@@ -100,13 +100,18 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      # 25, not 21: this job now also builds :26.2:build, and fabric-loom 1.18.2 requires Java 25
+      # to launch Gradle itself (not just as the module's own toolchain target) - confirmed live,
+      # the same constraint hit locally all through the 26.2 port. The foojay-resolver-convention
+      # plugin (settings.gradle) still auto-fetches whatever JDK :1.21.11:build's own toolchain
+      # needs for compilation, so this doesn't affect that module.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 21
+          java-version: 25
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 9.5.0
+          gradle-version: 9.7.0
       - name: Derive version from tag
         id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
