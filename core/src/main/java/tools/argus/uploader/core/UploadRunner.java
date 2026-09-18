@@ -137,7 +137,7 @@ public final class UploadRunner {
     private void processNext(Deque<RegionFile> queue, String runIdPrefix, int batchIndex, int inBatch) {
         if (cancelled.get() || queue.isEmpty()) {
             running.set(false);
-            listener.onComplete(doneCount.get(), failCount.get());
+            listener.onComplete(succeededCount(), failCount.get());
             return;
         }
         if (inBatch >= config.maxPerBatch) {
@@ -221,7 +221,18 @@ public final class UploadRunner {
 
     private void finishCancelled() {
         running.set(false);
-        listener.onComplete(doneCount.get(), failCount.get());
+        listener.onComplete(succeededCount(), failCount.get());
+    }
+
+    /** {@code doneCount} is every *resolved* attempt (success or failure combined, used for the
+     *  X/Y progress display) - {@link UploadProgressListener#onComplete}'s first parameter is
+     *  documented as the succeeded count specifically, so it needs this subtraction, not
+     *  {@code doneCount} directly. Passing doneCount there was a real bug: whenever a run failed
+     *  end to end, "N ok, N failed" printed with equal numbers by coincidence (doneCount ==
+     *  failCount when nothing succeeded), reading like a partial success that never happened -
+     *  confirmed live, see MANUAL_TEST_PLAN.md. */
+    private int succeededCount() {
+        return doneCount.get() - failCount.get();
     }
 
     private static String truncate(String s) {
