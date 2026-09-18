@@ -44,6 +44,14 @@ public final class GuiLauncher {
     private GuiLauncher() {
     }
 
+    // Piggybacks on this class's own forced-early-load hook (see ArgusUploaderClientMod's
+    // GuiLauncher.isAvailable() call) rather than adding a second call site in the shared
+    // ArgusUploaderClientMod.onInitializeClient() - that file is compiled for every version, so
+    // a 1.21.11-only registration belongs here, in the file that's already 1.21.11-only.
+    static {
+        ArgusPauseMenuButton.register();
+    }
+
     public static boolean isAvailable() {
         return true;
     }

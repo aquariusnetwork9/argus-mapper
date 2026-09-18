@@ -159,6 +159,91 @@ or by hand in `<instance>/config/argus-mapper.properties` before launch.
       selection - should refuse with "A run is already in progress"
       instead of starting a second concurrent run.
 
+### 7. Xaero map integration - region overlay (blackzone/upload coloring)
+
+`MixinGuiMapOverlay` colors each visible region tile on the fullscreen
+world map: red outline for a blackzone, translucent amber fill while it's
+uploading this run, translucent green fill once uploaded (this run or a
+past one). 1.21.11 only, same as the rest of this integration.
+
+- [x] Drag-select an area and "Mark ARGUS Blackzone" - a red outline
+      should snap onto that exact region immediately, with no GUI reopen
+      needed.
+
+      **Confirmed live.** The hard part here was the world-to-screen pixel
+      math: `GuiMap` (Xaero's own class) keeps `cameraX`/`cameraZ`/`scale`/
+      `screenScale` privately and does the actual projection inline inside
+      its own ~6,000-instruction `render` method, with no public helper
+      and no decompiler available in this environment to read it as real
+      source. Fitted the transform instead from real logged
+      `(mouseX, mouseY)` <-> `(mouseBlockPosX, mouseBlockPosZ)` sample
+      pairs across three different zoom levels (a temporary diagnostic
+      build of this same Mixin class, since removed) before writing the
+      real drawing code - `screenX = width/2 + (blockX - cameraX) *
+      (scale/screenScale)`, same for Z/height. Also hit, and fixed, the
+      same "literal method name doesn't match runtime bytecode" trap as
+      the rest of this integration: `render` is inherited from vanilla
+      `Screen`, so a production launch has it compiled under its Fabric
+      intermediary name with no refmap to translate it (this mixins.json
+      has none, since GuiMap isn't Yarn-mapped) - injecting into
+      `renderPreDropdown` instead (Xaero's own method, not vanilla, so its
+      literal name resolves directly) sidesteps this entirely and happens
+      to land at the right point in the frame anyway: after the map's own
+      tiles are drawn (so the fill isn't painted over) but before the
+      right-click dropdown/tooltips (so those still render on top).
+- [x] Zoom and pan the map with that blackzone still on screen - the
+      outline should track exactly, never drifting or detaching.
+
+      **Confirmed live** - same transform as above, verified panning and
+      zooming through several levels.
+- [x] Run `/argus upload` or "Upload This Area to ARGUS" over a
+      non-blackzoned, non-uploaded area - the region(s) should flash
+      amber while `UploadTracker` reports them QUEUED/UPLOADING, then
+      settle to green once the tracker reports DONE.
+
+      **Confirmed live against a real 6b6t session**, but this is also
+      where a real, separate scanner bug surfaced: an earlier version of
+      this fix let `XaeroScanner` match `.xwmc` render-cache files as if
+      they were real regions (see its own comment on `REGION_FILE`), so
+      the first live attempt tried to upload one and got HTTP 400
+      `render_failed` from ARGUS's own backend, which correctly only
+      accepts real `.zip` saves. Fixed by reverting the scanner to
+      `.zip`-only - real region files (confirmed against the same 6b6t
+      session's own `xaero/world-map/Multiplayer_6b6t.cc/null/mw$default/`
+      folder) upload and complete normally, and the amber-to-green
+      transition works as designed.
+- [x] Restart the client after an upload completes and reopen the map -
+      previously-uploaded regions should still show green, read back from
+      `<config dir>/argus-mapper-manifest.txt` rather than only this
+      session's tracker.
+
+      **Confirmed live** once the `.zip`-only scanner fix above landed -
+      `RegionOverlayState`'s manifest lookup uses the same `.zip` filename
+      convention as everywhere else in this codebase, consistently.
+
+**Also found during this same live pass, now fixed:** `/argus cancel` could
+go unanswered for minutes. `UploadRunner` processes one region at a time on
+a single background thread and only checked the cancellation flag *between*
+attempts - if the in-flight HTTP call to ARGUS was slow (a flaky connection,
+a slow response), nothing else on that thread could run, including noticing
+a cancel request, until that call resolved or timed out (up to ~60s, times
+up to `maxRetries` retries on a timeout). Confirmed live: `/argus cancel`
+twice, a minute apart, while `/argus status` stayed at a fixed "5 / 8" the
+whole time.
+
+Fixed by making the request itself abortable: `ArgusUploadClient.upload`
+now runs on `HttpClient.sendAsync`, and `UploadRunner` holds the resulting
+`CompletableFuture` so `cancel()` can call `.cancel(true)` on whatever's
+actually in flight, immediately, instead of only ever preventing the *next*
+one. `UploadRunnerCancelTest` (core, real loopback `HttpServer` that never
+responds) is a permanent regression test for this - it can only pass if
+cancellation genuinely aborts the in-flight request, not just skips ahead.
+
+- [ ] Live re-check with a real slow/flaky connection: start an upload,
+      `/argus cancel` mid-request, confirm `/argus status` flips to "No
+      upload in progress" within a second or two rather than however long
+      that one request would have taken.
+
 ## Known gaps going in (not yet fixed, just documented)
 
 - The `ConfirmScreen` -> return-to-map round trip

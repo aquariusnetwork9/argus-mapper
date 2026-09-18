@@ -21,7 +21,22 @@ public final class UploadTracker implements UploadProgressListener {
 
     public enum Status { QUEUED, UPLOADING, DONE, FAILED }
 
-    public record RowState(RegionFile region, Status status, String error) {
+    /**
+     * @param startedAtMillis  when this region's request began (0 if still QUEUED and never
+     *                         started)
+     * @param finishedAtMillis when it resolved, DONE or FAILED (0 while still QUEUED/UPLOADING)
+     */
+    public record RowState(RegionFile region, Status status, String error, long startedAtMillis, long finishedAtMillis) {
+
+        /** Time in flight so far - still-growing for the currently UPLOADING row, frozen at
+         *  however long it actually took once DONE/FAILED, 0 for a row that hasn't started. */
+        public long elapsedMillis() {
+            if (startedAtMillis <= 0) {
+                return 0;
+            }
+            long end = finishedAtMillis > 0 ? finishedAtMillis : System.currentTimeMillis();
+            return Math.max(0, end - startedAtMillis);
+        }
     }
 
     private final UploadProgressListener delegate;
@@ -59,7 +74,7 @@ public final class UploadTracker implements UploadProgressListener {
         synchronized (rows) {
             rows.clear();
             for (RegionFile region : toUpload) {
-                rows.put(region, new RowState(region, Status.QUEUED, null));
+                rows.put(region, new RowState(region, Status.QUEUED, null, 0L, 0L));
             }
         }
         delegate.onQueueBuilt(toUpload);
@@ -69,7 +84,7 @@ public final class UploadTracker implements UploadProgressListener {
     @Override
     public void onRegionStarted(RegionFile region) {
         synchronized (rows) {
-            rows.put(region, new RowState(region, Status.UPLOADING, null));
+            rows.put(region, new RowState(region, Status.UPLOADING, null, System.currentTimeMillis(), 0L));
         }
         delegate.onRegionStarted(region);
         fireChanged();
@@ -78,7 +93,7 @@ public final class UploadTracker implements UploadProgressListener {
     @Override
     public void onRegionUploaded(RegionFile region, int done, int total) {
         synchronized (rows) {
-            rows.put(region, new RowState(region, Status.DONE, null));
+            rows.put(region, new RowState(region, Status.DONE, null, startedAtOrNow(region), System.currentTimeMillis()));
         }
         delegate.onRegionUploaded(region, done, total);
         fireChanged();
@@ -87,10 +102,18 @@ public final class UploadTracker implements UploadProgressListener {
     @Override
     public void onRegionFailed(RegionFile region, String reason, int done, int total) {
         synchronized (rows) {
-            rows.put(region, new RowState(region, Status.FAILED, reason));
+            rows.put(region, new RowState(region, Status.FAILED, reason, startedAtOrNow(region), System.currentTimeMillis()));
         }
         delegate.onRegionFailed(region, reason, done, total);
         fireChanged();
+    }
+
+    /** Must be called while holding the {@code rows} lock. Falls back to "now" (0 elapsed)
+     *  rather than throwing if a region resolves without ever having been marked started -
+     *  shouldn't happen, but this is purely cosmetic state and isn't worth risking a run over. */
+    private long startedAtOrNow(RegionFile region) {
+        RowState existing = rows.get(region);
+        return existing != null && existing.startedAtMillis() > 0 ? existing.startedAtMillis() : System.currentTimeMillis();
     }
 
     @Override

@@ -8,6 +8,7 @@
   },
   "plugin": "tools.argus.uploader.fabric.mixin.xaero.ArgusXaeroMixinPlugin",
   "client": [
-    "MixinGuiMap"
+    "MixinGuiMap",
+    "MixinGuiMapOverlay"
   ]
 }

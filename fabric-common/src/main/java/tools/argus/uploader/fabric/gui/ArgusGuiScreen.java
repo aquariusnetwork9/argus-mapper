@@ -152,10 +152,15 @@ public final class ArgusGuiScreen extends Screen {
 
         label("API base URL (read-only)", panelX + PAD, y, MUTED);
         y += 10;
-        TextFieldWidget apiField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, panelW - PAD * 2, ROW_H, Text.empty());
-        apiField.setText(cfg.apiBaseUrl);
-        apiField.setEditable(false);
-        addDrawableChild(apiField);
+        // A plain label, not a TextFieldWidget - a fixed-width text field showing a
+        // longer-than-it-looks URL from position 0 with no visual cue that it's cut off (no
+        // ellipsis, no scrollbar) silently hid the back half of this value - reported live
+        // ("reads .../api/part" instead of the real .../api/partner/upload) even though the
+        // actual config value on disk was always correct. A label never clips (it just draws
+        // past the panel edge on an unusually narrow window, which is still fully readable,
+        // unlike silent truncation) and matches how every other read-only value in this GUI is
+        // already shown.
+        label(cfg.apiBaseUrl, panelX + PAD, y, TITLE_COLOR);
         y += ROW_H + ROW_GAP + 4;
 
         label("Xaero folder override (blank = auto-detect)", panelX + PAD, y, MUTED);
@@ -324,10 +329,13 @@ public final class ArgusGuiScreen extends Screen {
      * Recomputed every frame (called from {@link #render}, not {@link #buildTab}) so the bar
      * actually moves while an upload started via {@code /argus upload} keeps running in the
      * background - see {@link tools.argus.uploader.core.UploadRunner}'s own javadoc for why that
-     * background run survives this screen opening and closing. Aggregate-only by design (no
-     * per-file row list / progress bar): region files are capped at
-     * {@link ArgusConfig#maxFileSizeBytes} and each one finishes near-instantly, so a byte-level
-     * per-file bar would barely animate before flipping to done.
+     * background run survives this screen opening and closing. Aggregate bar plus one live detail
+     * line for the in-flight (or most recently resolved) region, not a full per-file row list -
+     * region files are capped at {@link ArgusConfig#maxFileSizeBytes} but aren't guaranteed to
+     * finish quickly (a slow/flaky connection can make a single region take a while - confirmed
+     * live on a real server, see MANUAL_TEST_PLAN.md scenario 7), so that one line shows size and
+     * elapsed/took time rather than assuming near-instant completion the way this tab originally
+     * did.
      */
     private void renderUploads(DrawContext context) {
         UploadTracker tracker = ArgusUploaderClientMod.activeUpload();
@@ -343,14 +351,19 @@ public final class ArgusGuiScreen extends Screen {
         int done = 0;
         int failed = 0;
         int queued = 0;
-        String uploadingName = null;
+        UploadTracker.RowState uploading = null;
+        UploadTracker.RowState lastResolved = null;
         for (UploadTracker.RowState row : rows) {
             switch (row.status()) {
                 case DONE -> done++;
                 case FAILED -> failed++;
                 case QUEUED -> queued++;
                 // Runs are sequential (see UploadRunner) so at most one row is ever UPLOADING.
-                case UPLOADING -> uploadingName = row.region().filename();
+                case UPLOADING -> uploading = row;
+            }
+            if ((row.status() == UploadTracker.Status.DONE || row.status() == UploadTracker.Status.FAILED)
+                    && (lastResolved == null || row.finishedAtMillis() > lastResolved.finishedAtMillis())) {
+                lastResolved = row;
             }
         }
         int resolved = done + failed;
@@ -379,11 +392,35 @@ public final class ArgusGuiScreen extends Screen {
                     panelX + PAD, y, MUTED);
             y += 12;
         }
-        if (uploadingName != null) {
-            context.drawTextWithShadow(this.textRenderer, "Uploading: " + uploadingName, panelX + PAD, y, ACCENT);
+        if (uploading != null) {
+            context.drawTextWithShadow(this.textRenderer, "Uploading: " + uploading.region().filename()
+                    + " (" + formatBytes(uploading.region().sizeBytes()) + ") - "
+                    + formatSeconds(uploading.elapsedMillis()) + " elapsed", panelX + PAD, y, ACCENT);
         } else if (total > 0 && resolved == total) {
             context.drawTextWithShadow(this.textRenderer, "Run finished.", panelX + PAD, y, ACCENT);
         }
+        if (lastResolved != null) {
+            y += 12;
+            String verb = lastResolved.status() == UploadTracker.Status.DONE ? "Done" : "Failed";
+            String line = "Last: " + lastResolved.region().filename() + " (" + formatBytes(lastResolved.region().sizeBytes())
+                    + ") - " + verb.toLowerCase(java.util.Locale.ROOT) + " in " + formatSeconds(lastResolved.elapsedMillis());
+            context.drawTextWithShadow(this.textRenderer, line, panelX + PAD, y,
+                    lastResolved.status() == UploadTracker.Status.DONE ? MUTED : 0xFFFF8080);
+        }
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes >= 1_000_000) {
+            return String.format(java.util.Locale.ROOT, "%.1f MB", bytes / 1_000_000.0);
+        }
+        if (bytes >= 1_000) {
+            return String.format(java.util.Locale.ROOT, "%.1f KB", bytes / 1_000.0);
+        }
+        return bytes + " B";
+    }
+
+    private static String formatSeconds(long millis) {
+        return String.format(java.util.Locale.ROOT, "%.1fs", millis / 1000.0);
     }
 
     // ---------------------------------------------------------------- Road Department (ARD)

@@ -5,11 +5,13 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 /**
@@ -37,6 +39,9 @@ public final class UploadRunner {
     private final AtomicInteger doneCount = new AtomicInteger(0);
     private final AtomicInteger failCount = new AtomicInteger(0);
     private volatile int totalCount = 0;
+    // The request currently in flight, if any - cancel() aborts this directly rather than only
+    // ever preventing the *next* one, so a slow/hanging request can't hold cancellation hostage.
+    private final AtomicReference<CompletableFuture<?>> inFlight = new AtomicReference<>();
 
     public UploadRunner(ArgusUploadClient client, ArgusConfig config, UploadManifest manifest, UploadProgressListener listener) {
         this.client = client;
@@ -59,6 +64,10 @@ public final class UploadRunner {
 
     public void cancel() {
         cancelled.set(true);
+        CompletableFuture<?> current = inFlight.get();
+        if (current != null) {
+            current.cancel(true);
+        }
     }
 
     /**
@@ -128,7 +137,7 @@ public final class UploadRunner {
     private void processNext(Deque<RegionFile> queue, String runIdPrefix, int batchIndex, int inBatch) {
         if (cancelled.get() || queue.isEmpty()) {
             running.set(false);
-            listener.onComplete(doneCount.get(), failCount.get());
+            listener.onComplete(succeededCount(), failCount.get());
             return;
         }
         if (inBatch >= config.maxPerBatch) {
@@ -149,12 +158,32 @@ public final class UploadRunner {
 
     private void attempt(RegionFile region, String batchId, int retryCount, Runnable onHandled) {
         if (cancelled.get()) {
-            running.set(false);
-            listener.onComplete(doneCount.get(), failCount.get());
+            finishCancelled();
             return;
         }
         listener.onRegionStarted(region);
-        ArgusUploadClient.UploadResult result = client.upload(region, batchId);
+        CompletableFuture<ArgusUploadClient.UploadResult> future = client.uploadAsync(region, batchId);
+        inFlight.set(future);
+        // whenComplete's callback can run on whichever thread the HTTP client finishes the
+        // request on, not necessarily this executor's own thread - hop back onto it so every
+        // decision about retrying/proceeding/finishing still happens on one thread, same as
+        // before this was made async, rather than needing doneCount/failCount alone to carry
+        // all of the thread-safety burden.
+        future.whenComplete((result, throwable) ->
+                executor.execute(() -> onAttemptComplete(region, batchId, retryCount, onHandled, result)));
+    }
+
+    private void onAttemptComplete(RegionFile region, String batchId, int retryCount, Runnable onHandled,
+                                    ArgusUploadClient.UploadResult result) {
+        inFlight.set(null);
+        if (cancelled.get()) {
+            // Either cancelled between the request starting and finishing (result reflects
+            // whatever actually happened, and is still meaningful to log) or cancel() aborted
+            // this exact request (result is null - cancellation short-circuited it) - either
+            // way, stop rather than continue the queue or retry.
+            finishCancelled();
+            return;
+        }
 
         if (result.success()) {
             try {
@@ -188,6 +217,22 @@ public final class UploadRunner {
         doneCount.incrementAndGet();
         listener.onRegionFailed(region, reason, doneCount.get(), totalCount);
         onHandled.run();
+    }
+
+    private void finishCancelled() {
+        running.set(false);
+        listener.onComplete(succeededCount(), failCount.get());
+    }
+
+    /** {@code doneCount} is every *resolved* attempt (success or failure combined, used for the
+     *  X/Y progress display) - {@link UploadProgressListener#onComplete}'s first parameter is
+     *  documented as the succeeded count specifically, so it needs this subtraction, not
+     *  {@code doneCount} directly. Passing doneCount there was a real bug: whenever a run failed
+     *  end to end, "N ok, N failed" printed with equal numbers by coincidence (doneCount ==
+     *  failCount when nothing succeeded), reading like a partial success that never happened -
+     *  confirmed live, see MANUAL_TEST_PLAN.md. */
+    private int succeededCount() {
+        return doneCount.get() - failCount.get();
     }
 
     private static String truncate(String s) {

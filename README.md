@@ -128,6 +128,14 @@ extra options:
   to the map. Refuses (with a chat message, no popup) if a run is already
   in progress or the selection has nothing eligible to upload.
 
+The map also colors each visible region tile so you can see this at a
+glance instead of checking chat or the Uploads tab: a red outline for a
+blackzone, translucent amber while it's uploading, translucent green once
+it's uploaded (this run or a past one) - the same idea as mods like
+NewerNewChunks coloring chunks by render version. Tracks pan and zoom, and
+never blocks map interaction if something goes wrong internally - it just
+stops drawing for that session rather than risking the map screen.
+
 ## Security: the API token
 
 **Never put the bearer token in source code, `fabric.mod.json`, or anything
@@ -305,6 +313,16 @@ under a per-world folder - `xaero/world-map/<world>/...` on current versions,
 named `DIM-1` (nether) and `DIM1` (end); anything else defaults to overworld.
 A `caves/` branch holds cave-mode regions and is skipped unless
 `includeCaves=true`.
+
+Xaero also keeps its own multi-zoom-level render cache alongside the real
+`.zip` saves, as `.xwmc` (and `.xwmc.outdated` for a superseded entry) under
+numbered `cache`/`cache_1`/`cache_2`/... subfolders - confirmed live against
+a real 6b6t session, not guessed. That's a disposable rendering artifact,
+never real region data (it doesn't get "promoted" into a `.zip`), and
+`XaeroScanner` never treats it as such - a version of this mod briefly did,
+on the mistaken assumption that Xaero had switched formats entirely, and
+that caused a real upload to fail against ARGUS's own backend (HTTP 400
+`render_failed`, since a `.xwmc` filename isn't a real region save at all).
 
 **Caveat:** Xaero sanitizes server addresses / world names when building
 these folder names, and the exact rule isn't public and varies by version.

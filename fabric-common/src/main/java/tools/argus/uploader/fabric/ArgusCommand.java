@@ -207,6 +207,10 @@ final class ArgusCommand {
      * starting an upload from the map behaves identically to {@code /argus upload} once it finishes.
      */
     static void onUploadRunComplete(UploadManifest manifest, int succeeded, int failed, BiConsumer<String, Boolean> discordFeedback) {
+        // The map overlay's "already uploaded" color is served from a cached snapshot of this
+        // same manifest (see RegionOverlayState) - without this, a region uploaded just now would
+        // stay uncolored on the map until the next game restart re-read the manifest from disk.
+        RegionOverlayState.invalidateUploadedCache();
         ArgusConfig config = ArgusUploaderClientMod.config();
         if (config.autoReportToDiscord && !config.discordWebhookUrl.isBlank() && succeeded > 0) {
             sendDiscordReport(manifest, discordFeedback);
