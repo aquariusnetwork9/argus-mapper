@@ -39,8 +39,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # 1.21.4 and 1.21.8 modules still exist and are still developed (see their own gui-src/ and
+      # MANUAL_TEST_PLAN.md) but are deliberately no longer built/released here as of the v0.3.0
+      # release: the actual target server (6b6t) now kicks anything below 1.21.11 with "Unsupported
+      # Minecraft version. Join with Minecraft 1.21.11 or newer.", so a jar for either version can
+      # never actually be used against it. Build them locally (`gradle :1.21.4:build`) if needed.
       matrix:
-        mcVersion: ['1.21.4', '1.21.8', '1.21.11']
+        mcVersion: ['1.21.11']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -107,27 +112,26 @@ jobs:
       # Rebuilt here (rather than reusing the matrix job's artifacts) so
       # every jar's own fabric.mod.json version matches the tag it ships
       # under, instead of the "unspecified" default from a plain build.
-      - name: Build 1.21.x jars at release version
-        run: |
-          for mc in 1.21.4 1.21.8 1.21.11; do
-            gradle --configure-on-demand ":$mc:build" -Pversion=${{ steps.ver.outputs.version }}
-          done
+      #
+      # 1.21.4 and 1.21.8 deliberately excluded as of the v0.3.0 release: 6b6t (the actual target
+      # server) now requires 1.21.11+ to join at all, so a release jar for either older version
+      # could never be used against it. See build-1-21-x's own comment above for the full story.
+      - name: Build 1.21.11 jar at release version
+        run: gradle --configure-on-demand ':1.21.11:build' -Pversion=${{ steps.ver.outputs.version }}
       - name: Build 26.1 jar at release version (best-effort, unverified)
         continue-on-error: true
         run: gradle --configure-on-demand ':26.1:build' -Pversion=${{ steps.ver.outputs.version }}
       - name: Collect jars
         run: |
           mkdir -p dist
-          cp 1.21.4/build/libs/*.jar dist/ 2>/dev/null || true
-          cp 1.21.8/build/libs/*.jar dist/ 2>/dev/null || true
           cp 1.21.11/build/libs/*.jar dist/ 2>/dev/null || true
           cp 26.1/build/libs/*.jar dist/ 2>/dev/null || true
           ls -la dist
       - name: Refuse to publish an incomplete release
         run: |
           count=$(ls dist/*.jar 2>/dev/null | wc -l)
-          if [ "$count" -lt 3 ]; then
-            echo "::error::Expected at least the 3 real 1.21.x jars, found $count - not publishing a broken release."
+          if [ "$count" -lt 1 ]; then
+            echo "::error::Expected at least the real 1.21.11 jar, found $count - not publishing a broken release."
             exit 1
           fi
       - name: Create GitHub Release

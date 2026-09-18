@@ -24,12 +24,29 @@ sourceSets {
             // ClickEvent shape) - see each fork's javadoc.
             srcDir rootProject.file('ard-common/src/main/java')
             srcDir rootProject.file('1.21.4/ard-src')
+            // Xaero's World Map right-click integration (mark blackzone / upload area) and region
+            // overlay - see gui-src/tools/.../mixin/xaero javadocs. Verified via javap against the
+            // real 1.40.11 jar installed in ARGUS-Mapper-Test-1.21.4, not ported blind from 1.21.11.
+            // Also carries this version's own GuiLauncher (adds the pause-menu button registration
+            // fabric-common's copy doesn't have - see gui-src/GuiLauncher.java's own javadoc for
+            // why it's a full fork rather than just excluding one method).
+            srcDir rootProject.file('1.21.4/gui-src')
+            exclude 'tools/argus/uploader/fabric/gui/GuiLauncher.java'
         }
     }
 }
 
 repositories {
     mavenCentral()
+    // Xaero's World Map isn't published to Maven Central - Modrinth mirrors mod jars as Maven
+    // artifacts under the maven.modrinth group (same source XaeroPlus itself builds against).
+    // Content-filtered so it's only ever consulted for that one group.
+    maven {
+        url = 'https://api.modrinth.com/maven'
+        content {
+            includeGroup 'maven.modrinth'
+        }
+    }
 }
 
 dependencies {
@@ -37,6 +54,14 @@ dependencies {
     mappings "net.fabricmc:yarn:1.21.4+build.8:v2"
     modImplementation "net.fabricmc:fabric-loader:0.19.5"
     modImplementation "net.fabricmc.fabric-api:fabric-api:0.119.4+1.21.4"
+    // compileOnly, not implementation: the blackzone map-select/overlay mixins (see
+    // gui-src/mixin/xaero) are optional compat, not a hard requirement - ArgusXaeroMixinPlugin
+    // gates them on FabricLoader.isModLoaded("xaeroworldmap") so the rest of the mod works fine
+    // without Xaero's World Map installed. Pinned to 1.40.11 to match the jar actually installed
+    // in ARGUS-Mapper-Test-1.21.4, not the latest available - dev-compile and runtime need to be
+    // the same jar for the javap-verified field/method access above to mean anything. transitive
+    // = false to match how XaeroPlus itself depends on this.
+    modCompileOnly('maven.modrinth:xaeros-world-map:fabric-1.21.4-1.40.11') { transitive = false }
 }
 
 processResources {
