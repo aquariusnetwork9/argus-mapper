@@ -47,35 +47,53 @@ off disk and makes HTTP requests. So it's split into:
 - **`26.2/`** - ported and live-tested against Minecraft 26.x's Mojang
   mappings (no more Yarn/obfuscation on this line - see
   [26.2/NOTES.md](26.2/NOTES.md) for the mapping differences that tripped
-  up the port). Full `/argus` command tree, blackzones, and Xaero World
-  Map's right-click integration + region overlay all work. Still missing
-  the GUI, ARD, and a real (non-stubbed) nether-highway check - see that
-  file for what's deferred and why.
+  up the port, including a genuinely deeper GUI widget rewrite than
+  1.21.11's). Full `/argus` command tree, blackzones, the GUI, the pause-
+  menu button, and Xaero World Map's right-click integration + region
+  overlay all work. Still missing ARD and a real (non-stubbed)
+  nether-highway check - see that file for what's deferred and why.
+
+### Supported versions
+
+6b6t - the server this mod actually targets - kicks any client below
+1.21.11 with "Unsupported Minecraft version. Join with Minecraft 1.21.11
+or newer." (confirmed live), so **1.21.11 and 26.2 are the two versions
+that can actually be used against it**, and are the only ones CI builds
+or ships in a [Release](#releasing) as of v0.3.0. 1.21.4 and 1.21.8 stay
+in the repo, keep compiling, and keep getting real updates (they're at
+GUI+Xaero parity with 1.21.11 as of this writing) for local use or any
+other server without this floor - just build them yourself
+(`gradle :1.21.4:build`) - but they're no longer part of the automated
+build/release pipeline. See [CI](#ci) for the exact mechanics.
 
 ## GUI
 
 The recommended way to use this mod day-to-day. Open it with `/argus gui`,
 or bind a key to it in Controls (unbound by default, listed under "ARGUS
 Mapper") - either way it opens reliably and resizes itself to fit your
-window on every 1.21.x version this mod supports. Seven tabs - General,
-Token, Servers, Stats, Uploads, Road Dept. (ARD), and Add-on API - read and
-write the exact same config objects the chat commands do, so there's no
-separate GUI-only state to fall out of sync and nothing you can only do
-from one side or the other. The **Uploads** tab is a torrent-style live
-view of the current run (aggregate progress bar, queued/done/failed
-counts, and how many were excluded by a blackzone), backed by a tracker
-that lives on the background upload run itself - it keeps updating even if
-you close and reopen the GUI mid-run, and survives a server
-disconnect/switch, since the run doesn't stop until the game does.
+window on every version this mod supports. General, Token, Servers, Stats,
+Uploads, and Add-on API tabs read and write the exact same config objects
+the chat commands do, so there's no separate GUI-only state to fall out of
+sync and nothing you can only do from one side or the other. 1.21.4,
+1.21.8, and 1.21.11 additionally have a **Road Dept. (ARD)** tab (seven
+tabs total); 26.2 doesn't, since ARD has no 26.2 port yet. The **Uploads**
+tab is a torrent-style live view of the current run (aggregate progress
+bar, queued/done/failed counts, and how many were excluded by a
+blackzone), backed by a tracker that lives on the background upload run
+itself - it keeps updating even if you close and reopen the GUI mid-run,
+and survives a server disconnect/switch, since the run doesn't stop until
+the game does.
 
-Not available on [26.2](26.2/NOTES.md) yet (see that file for why).
-Available on **1.21.4**, **1.21.8**, and
-**1.21.11** - 1.21.11 needed its own port of the GUI's widget and keybinding
-code (`1.21.11/gui-src/`) since that version's `PressableWidget` changed
-`onPress`/`renderWidget`/`drawIcon` from what 1.21.4/1.21.8 use, and its
-`KeyBinding` category parameter became a `KeyBinding.Category` object
-instead of a plain `String`. `/argus` and `/ard` chat commands are
-unaffected on every version regardless of GUI availability.
+Available on every version this mod supports - **1.21.4**, **1.21.8**,
+**1.21.11**, and **26.2**. 1.21.11 needed its own port of the GUI's widget
+and keybinding code (`1.21.11/gui-src/`) since that version's
+`PressableWidget` changed `onPress`/`renderWidget`/`drawIcon` from what
+1.21.4/1.21.8 use, and its `KeyBinding` category parameter became a
+`KeyBinding.Category` object instead of a plain `String`. 26.2 needed a
+still deeper port of its own against real Mojang mappings - see
+[26.2/NOTES.md](26.2/NOTES.md) for the widget-hierarchy rewrite that
+involved. `/argus` and `/ard` chat commands are unaffected on every
+version regardless.
 
 Picked from three visual directions pitched up front (a vanilla-menu skin,
 a floating utility-client skin, and an original watchtower-console skin) -
