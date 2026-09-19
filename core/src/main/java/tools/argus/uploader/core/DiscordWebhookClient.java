@@ -14,7 +14,7 @@ import java.util.List;
  * one HTTP POST to a URL the user creates in their own Discord channel's
  * Integrations settings. Deliberately hand-rolls the tiny bit of JSON this
  * needs rather than pulling in a JSON library, matching core's zero-dependency
- * design (see README "Design").
+ * design (see README "How the code is organised").
  */
 public final class DiscordWebhookClient {
 

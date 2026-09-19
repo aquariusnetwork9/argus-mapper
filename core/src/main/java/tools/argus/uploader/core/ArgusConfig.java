@@ -32,9 +32,8 @@ public final class ArgusConfig {
     public String discordWebhookUrl = "";
     public boolean autoReportToDiscord = false;
 
-    // Rich Presence is NOT wired up yet - see README "Discord Rich Presence
-    // (not yet implemented)". These fields are reserved so a future build can
-    // add it without another config migration.
+    // Rich Presence is NOT wired up yet - see README "Discord". These fields are
+    // reserved so a future build can add it without another config migration.
     public String discordApplicationId = "";
     public boolean enableRichPresence = false;
 
