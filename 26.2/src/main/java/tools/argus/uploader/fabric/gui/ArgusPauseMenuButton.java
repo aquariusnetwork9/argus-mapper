@@ -9,7 +9,9 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.argus.uploader.core.PauseButtonPlacement;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -25,49 +27,34 @@ import java.util.List;
 public final class ArgusPauseMenuButton {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("argus-mapper");
-    private static final int BUTTON_WIDTH = 100;
-    private static final int BUTTON_HEIGHT = 20;
-    private static final int MARGIN = 4;
-    private static final int ROW_GAP = 4;
-
     private ArgusPauseMenuButton() {
     }
 
     public static void register() {
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
             if (screen instanceof PauseScreen) {
-                addButton(screen, scaledHeight);
+                addButton(screen, scaledWidth, scaledHeight);
             }
         });
     }
 
-    private static void addButton(Screen screen, int scaledHeight) {
+    private static void addButton(Screen screen, int scaledWidth, int scaledHeight) {
         List<AbstractWidget> widgets = Screens.getWidgets(screen);
-        int x = MARGIN;
-        int width = BUTTON_WIDTH;
-        int y = scaledHeight - MARGIN - BUTTON_HEIGHT;
+        PauseButtonPlacement.Rect spot;
         try {
-            int lowestBottom = 0;
+            List<PauseButtonPlacement.Rect> existing = new ArrayList<>();
             for (AbstractWidget widget : widgets) {
-                int bottom = widget.getY() + widget.getHeight();
-                if (bottom > lowestBottom) {
-                    lowestBottom = bottom;
-                    x = widget.getX();
-                    width = widget.getWidth();
-                }
+                existing.add(new PauseButtonPlacement.Rect(widget.getX(), widget.getY(), widget.getWidth(), widget.getHeight()));
             }
-            if (lowestBottom > 0 && lowestBottom + ROW_GAP + BUTTON_HEIGHT <= scaledHeight - MARGIN) {
-                y = lowestBottom + ROW_GAP;
-            }
+            spot = PauseButtonPlacement.place(existing, scaledWidth, scaledHeight);
         } catch (RuntimeException e) {
-            LOGGER.error("Failed to line up the ARGUS Menu button with the pause menu's own buttons "
+            LOGGER.error("Failed to place the ARGUS Menu button among the pause menu's other buttons "
                     + "- using a fixed corner instead", e);
-            x = MARGIN;
-            width = BUTTON_WIDTH;
-            y = scaledHeight - MARGIN - BUTTON_HEIGHT;
+            spot = new PauseButtonPlacement.Rect(4, scaledHeight - 24,
+                    PauseButtonPlacement.BUTTON_WIDTH, PauseButtonPlacement.BUTTON_HEIGHT);
         }
         widgets.add(Button.builder(Component.literal("ARGUS Menu"), button -> GuiLauncher.open())
-                .bounds(x, y, width, BUTTON_HEIGHT)
+                .bounds(spot.x(), spot.y(), spot.width(), spot.height())
                 .build());
     }
 }
