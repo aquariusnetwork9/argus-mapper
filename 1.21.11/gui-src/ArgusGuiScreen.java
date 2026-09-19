@@ -8,12 +8,14 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 import tools.argus.uploader.core.ArgusConfig;
+import tools.argus.uploader.core.BlackZone;
 import tools.argus.uploader.core.DiscordWebhookClient;
 import tools.argus.uploader.core.MapperStats;
 import tools.argus.uploader.core.ServerProfile;
 import tools.argus.uploader.core.UploadManifest;
 import tools.argus.uploader.core.UploadTracker;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.fabric.BlackzoneRemoval;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -33,7 +35,7 @@ import java.util.List;
  */
 public final class ArgusGuiScreen extends Screen {
 
-    private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Stats", "Uploads", "Road Dept.", "API"};
+    private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Blackzones", "Stats", "Uploads", "Road Dept.", "API"};
     private static final int MIN_PANEL_W = 300;
     private static final int HEADER_H = 46;
     private static final int PAD = 12;
@@ -41,7 +43,7 @@ public final class ArgusGuiScreen extends Screen {
     private static final int ROW_GAP = 4;
 
     // Mirrors buildGeneralTab()'s own sequence of y-increments exactly (it's the tallest tab: 2
-    // fields, 2 toggles, 2 sliders) so the default panel height is derived from the real row math
+    // fields, 3 toggles, 2 sliders) so the default panel height is derived from the real row math
     // instead of a guessed constant - update this alongside that method if its rows ever change.
     // Reported live: the old fixed 268 put the Save/Reload row on top of the last slider.
     private static final int GENERAL_TAB_CONTENT_H =
@@ -49,6 +51,7 @@ public final class ArgusGuiScreen extends Screen {
                     + (10 + ROW_H + ROW_GAP + 6)   // Xaero folder override field
                     + (ROW_H + ROW_GAP)            // toggle: include caves
                     + (ROW_H + ROW_GAP)            // toggle: restrict nether
+                    + (ROW_H + ROW_GAP)            // toggle: re-upload changed regions
                     + 4
                     + (10 + ROW_H + ROW_GAP)       // slider: pace between uploads
                     + (10 + ROW_H + ROW_GAP);      // slider: regions per batch
@@ -62,7 +65,7 @@ public final class ArgusGuiScreen extends Screen {
     private static final int ACCENT = 0xFF8A6BFF;
     private static final int FIELD_BG = 0xFF1A1C25;
 
-    private enum Tab { GENERAL, TOKEN, SERVERS, STATS, UPLOADS, ROAD_DEPT, API }
+    private enum Tab { GENERAL, TOKEN, SERVERS, BLACKZONES, STATS, UPLOADS, ROAD_DEPT, API }
 
     private Tab currentTab = Tab.GENERAL;
     private int panelX;
@@ -124,6 +127,7 @@ public final class ArgusGuiScreen extends Screen {
             case GENERAL -> buildGeneralTab(contentTop);
             case TOKEN -> buildTokenTab(contentTop);
             case SERVERS -> buildServersTab(contentTop);
+            case BLACKZONES -> buildBlackzonesTab(contentTop);
             case STATS -> buildStatsTab(contentTop);
             case UPLOADS -> buildUploadsTab(contentTop);
             case ROAD_DEPT -> buildRoadDeptTab(contentTop);
@@ -171,6 +175,7 @@ public final class ArgusGuiScreen extends Screen {
 
         y = toggleRow(y, "Include cave regions", cfg.includeCaves, v -> cfg.includeCaves = v);
         y = toggleRow(y, "Restrict nether uploads to ARD highways", cfg.restrictNetherToHighways, v -> cfg.restrictNetherToHighways = v);
+        y = toggleRow(y, "Re-upload regions that changed", cfg.reuploadChangedRegions, v -> cfg.reuploadChangedRegions = v);
         y += 4;
 
         y = sliderRow(y, "Pace between uploads", 1000, 10000, 500, cfg.paceMillis > Integer.MAX_VALUE ? 10000 : (int) cfg.paceMillis,
@@ -258,6 +263,54 @@ public final class ArgusGuiScreen extends Screen {
         }
         y += 8;
         label("Add servers with /argus server add <id> <layer> <matches>", panelX + PAD, y, MUTED);
+    }
+
+    // ---------------------------------------------------------------- Blackzones
+
+    private static final int BLACKZONES_PER_PAGE = 4;
+    private int blackzonePage = 0;
+
+    private void buildBlackzonesTab(int top) {
+        List<BlackZone> all = ArgusUploaderClientMod.blackzoneStore().all();
+        int y = top;
+        if (all.isEmpty()) {
+            label("No blackzones set.", panelX + PAD, y, TITLE_COLOR);
+            y += 14;
+            label("Select an area on the Xaero world map, then right-click", panelX + PAD, y, MUTED);
+            y += 11;
+            label("and choose Mark ARGUS Blackzone.", panelX + PAD, y, MUTED);
+            return;
+        }
+        int pages = (all.size() + BLACKZONES_PER_PAGE - 1) / BLACKZONES_PER_PAGE;
+        blackzonePage = Math.min(blackzonePage, pages - 1);
+        label("Never uploaded. Stored only on this device.", panelX + PAD, y, MUTED);
+        y += 14;
+
+        String activeLayer = ArgusUploaderClientMod.config().layer;
+        int from = blackzonePage * BLACKZONES_PER_PAGE;
+        for (BlackZone zone : all.subList(from, Math.min(all.size(), from + BLACKZONES_PER_PAGE))) {
+            label(zone.label().isBlank() ? zone.id() : zone.label(), panelX + PAD, y, TITLE_COLOR);
+            String where = zone.dimension() + ", region " + zone.bounds().minRegionX() + ".." + zone.bounds().maxRegionX()
+                    + ", " + zone.bounds().minRegionZ() + ".." + zone.bounds().maxRegionZ()
+                    + (zone.layer().equals(activeLayer) ? "" : "  (" + zone.layer() + ")");
+            label(where, panelX + PAD, y + 10, MUTED);
+            addDrawableChild(new PanelButton(panelX + panelW - PAD - 60, y, 60, ROW_H, Text.literal("Remove"),
+                    () -> BlackzoneRemoval.confirmAndRemove(this, List.of(zone), () -> switchTab(Tab.BLACKZONES))));
+            y += ROW_H + ROW_GAP + 2;
+        }
+
+        if (pages > 1) {
+            int pagerY = panelY + panelH - PAD - ROW_H;
+            addDrawableChild(new PanelButton(panelX + PAD, pagerY, 24, ROW_H, Text.literal("<"), () -> {
+                blackzonePage = Math.max(0, blackzonePage - 1);
+                switchTab(Tab.BLACKZONES);
+            }));
+            label((blackzonePage + 1) + " / " + pages, panelX + PAD + 32, pagerY + (ROW_H - 8) / 2, MUTED);
+            addDrawableChild(new PanelButton(panelX + PAD + 70, pagerY, 24, ROW_H, Text.literal(">"), () -> {
+                blackzonePage = Math.min(pages - 1, blackzonePage + 1);
+                switchTab(Tab.BLACKZONES);
+            }));
+        }
     }
 
     // ---------------------------------------------------------------- Stats

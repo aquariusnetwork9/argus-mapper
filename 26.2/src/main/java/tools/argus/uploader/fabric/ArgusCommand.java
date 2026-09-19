@@ -268,18 +268,14 @@ final class ArgusCommand {
     }
 
     private static int blackzoneRemove(FabricClientCommandSource source, String id) {
-        try {
-            boolean removed = ArgusUploaderClientMod.blackzoneStore().remove(id);
-            if (removed) {
-                info(source, "Blackzone '" + id + "' removed. Anything inside it can be uploaded again on the next run.");
-            } else {
-                error(source, "No blackzone with id '" + id + "'. See /argus blackzone list.");
-            }
-            return removed ? 1 : 0;
-        } catch (IOException e) {
-            error(source, "Failed to remove blackzone: " + e.getMessage());
+        Optional<BlackZone> zone = ArgusUploaderClientMod.blackzoneStore().find(id);
+        if (zone.isEmpty()) {
+            error(source, "No blackzone with id '" + id + "'. See /argus blackzone list.");
             return 0;
         }
+        BlackzoneRemoval.requestFromCommand(List.of(zone.get()));
+        info(source, "Confirm in the popup to remove blackzone '" + id + "'.");
+        return 1;
     }
 
     private static int serverDetect(FabricClientCommandSource source) {

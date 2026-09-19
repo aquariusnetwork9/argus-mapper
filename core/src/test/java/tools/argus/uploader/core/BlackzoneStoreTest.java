@@ -66,6 +66,28 @@ class BlackzoneStoreTest {
     }
 
     @Test
+    void removedZoneNoLongerExcludesItsRegionsAndOthersStayEnforced(@TempDir Path dir) throws IOException {
+        BlackzoneStore store = BlackzoneStore.load(dir.resolve("blackzones.properties"));
+        store.addOrReplace(new BlackZone("home", "overworld", "shallowplague", new RegionBounds(0, 0, 1, 1), ""));
+        store.addOrReplace(new BlackZone("farm", "overworld", "shallowplague", new RegionBounds(10, 10, 11, 11), ""));
+
+        store.remove("home");
+
+        assertFalse(store.isBlackzoned("overworld", "shallowplague", region("overworld", 0, 0)));
+        assertTrue(store.isBlackzoned("overworld", "shallowplague", region("overworld", 10, 10)));
+    }
+
+    @Test
+    void findReturnsTheZoneByIdOrEmpty() throws IOException {
+        BlackzoneStore store = BlackzoneStore.empty();
+        BlackZone home = new BlackZone("home", "overworld", "shallowplague", new RegionBounds(0, 0, 0, 0), "");
+        store.addOrReplace(home);
+
+        assertEquals(home, store.find("home").orElseThrow());
+        assertTrue(store.find("nope").isEmpty());
+    }
+
+    @Test
     void forServerFiltersByDimensionAndLayer() throws IOException {
         BlackzoneStore store = BlackzoneStore.empty();
         store.addOrReplace(new BlackZone("a", "overworld", "shallowplague", new RegionBounds(0, 0, 0, 0), ""));

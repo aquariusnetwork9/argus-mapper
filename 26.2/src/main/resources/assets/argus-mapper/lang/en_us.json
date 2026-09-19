@@ -1,4 +1,5 @@
 {
   "argus_mapper.gui.world_map.mark_blackzone": "Mark ARGUS Blackzone",
+  "argus_mapper.gui.world_map.remove_blackzone": "Remove ARGUS Blackzone",
   "argus_mapper.gui.world_map.upload_area": "Upload This Area to ARGUS"
 }

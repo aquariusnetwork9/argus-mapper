@@ -47,6 +47,14 @@ public final class ArgusConfig {
     // events (upload counts, aggregate stats), neither of which ever carried live position.
     public boolean enableAddonApi = true;
 
+    // When true, a region that was uploaded before but whose Xaero file is newer than it was at
+    // that upload is included in the next explicit upload run, instead of being skipped as "already
+    // uploaded" forever. Still subject to every blackzone/size/coordinate check a first upload is.
+    // The ARGUS API replaces the stored region with the re-sent file, so a re-upload supersedes the
+    // older copy rather than duplicating it. Defaults to false so updating the mod doesn't start
+    // re-sending regions until the player opts in.
+    public boolean reuploadChangedRegions = false;
+
     public boolean isUsable() {
         return !token.isBlank() && !layer.isBlank();
     }
@@ -76,6 +84,7 @@ public final class ArgusConfig {
         cfg.discordApplicationId = p.getProperty("discordApplicationId", cfg.discordApplicationId);
         cfg.enableRichPresence = Boolean.parseBoolean(p.getProperty("enableRichPresence", String.valueOf(cfg.enableRichPresence)));
         cfg.enableAddonApi = Boolean.parseBoolean(p.getProperty("enableAddonApi", String.valueOf(cfg.enableAddonApi)));
+        cfg.reuploadChangedRegions = Boolean.parseBoolean(p.getProperty("reuploadChangedRegions", String.valueOf(cfg.reuploadChangedRegions)));
         return cfg;
     }
 
@@ -96,6 +105,7 @@ public final class ArgusConfig {
         p.setProperty("discordApplicationId", discordApplicationId);
         p.setProperty("enableRichPresence", String.valueOf(enableRichPresence));
         p.setProperty("enableAddonApi", String.valueOf(enableAddonApi));
+        p.setProperty("reuploadChangedRegions", String.valueOf(reuploadChangedRegions));
         if (file.getParent() != null) {
             Files.createDirectories(file.getParent());
         }

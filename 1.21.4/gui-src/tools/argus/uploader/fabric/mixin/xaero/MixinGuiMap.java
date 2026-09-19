@@ -14,6 +14,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import tools.argus.uploader.core.BlackZone;
 import tools.argus.uploader.core.RegionBounds;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.fabric.BlackzoneRemoval;
 import tools.argus.uploader.fabric.MapUploadTrigger;
 import xaero.map.MapProcessor;
 import xaero.map.gui.GuiMap;
@@ -23,6 +24,7 @@ import xaero.map.gui.dropdown.rightclick.RightClickOption;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 1.21.4's copy of 1.21.11's MixinGuiMap - adds a "Mark Blackzone" entry to Xaero's World Map
@@ -73,6 +75,35 @@ public abstract class MixinGuiMap {
                 argusMapper$markBlackzone(selection);
             }
         });
+
+        List<BlackZone> blackzonesInSelection = argusMapper$blackzonesIn(selection);
+        if (!blackzonesInSelection.isEmpty()) {
+            options.add(new RightClickOption("argus_mapper.gui.world_map.remove_blackzone", options.size(), self) {
+                @Override
+                public void onAction(Screen screen) {
+                    BlackzoneRemoval.confirmAndRemove(screen, blackzonesInSelection);
+                }
+            });
+        }
+    }
+
+    @Unique
+    private List<BlackZone> argusMapper$blackzonesIn(MapTileSelection selection) {
+        String dimension = argusMapper$currentDimension();
+        String layer = ArgusUploaderClientMod.config().layer;
+        if (dimension == null || layer.isBlank()) {
+            return List.of();
+        }
+        RegionBounds bounds = RegionBounds.ofCorners(
+                selection.getLeft() >> 5, selection.getTop() >> 5,
+                selection.getRight() >> 5, selection.getBottom() >> 5);
+        List<BlackZone> overlapping = new ArrayList<>();
+        for (BlackZone zone : ArgusUploaderClientMod.blackzoneStore().forServer(dimension, layer)) {
+            if (zone.bounds().intersects(bounds)) {
+                overlapping.add(zone);
+            }
+        }
+        return overlapping;
     }
 
     @Unique

@@ -71,11 +71,11 @@ build/release pipeline. See [CI](#ci) for the exact mechanics.
 The recommended way to use this mod day-to-day. Open it with `/argus gui`,
 or bind a key to it in Controls (unbound by default, listed under "ARGUS
 Mapper") - either way it opens reliably and resizes itself to fit your
-window on every version this mod supports. General, Token, Servers, Stats,
-Uploads, and Add-on API tabs read and write the exact same config objects
+window on every version this mod supports. General, Token, Servers,
+Blackzones, Stats, Uploads, and Add-on API tabs read and write the exact same config objects
 the chat commands do, so there's no separate GUI-only state to fall out of
 sync and nothing you can only do from one side or the other. 1.21.4,
-1.21.8, and 1.21.11 additionally have a **Road Dept. (ARD)** tab (seven
+1.21.8, and 1.21.11 additionally have a **Road Dept. (ARD)** tab (eight
 tabs total); 26.2 doesn't, since ARD has no 26.2 port yet. The **Uploads**
 tab is a torrent-style live view of the current run (aggregate progress
 bar, queued/done/failed counts, and how many were excluded by a
@@ -142,7 +142,7 @@ the integration on `FabricLoader.isModLoaded("xaeroworldmap")`, so nothing
 about the rest of the mod depends on it.
 
 With Xaero's World Map installed, drag a selection on the fullscreen map
-(Xaero's own native rectangle-select) and right-click inside it for two
+(Xaero's own native rectangle-select) and right-click inside it for the
 extra options:
 
 - **Mark ARGUS Blackzone** - saves the selection as a blackzone (see
@@ -156,6 +156,9 @@ extra options:
   blackzone/coordinate-cap enforcement. Answering either way returns you
   to the map. Refuses (with a chat message, no popup) if a run is already
   in progress or the selection has nothing eligible to upload.
+- **Remove ARGUS Blackzone** - only offered when the selection overlaps an
+  existing blackzone on this server. Asks for confirmation first (see
+  [Blackzones](#blackzones)).
 
 The map also colors each visible region tile so you can see this at a
 glance instead of checking chat or the Uploads tab: a red outline for a
@@ -283,8 +286,15 @@ excluded this way. Declare one two ways:
   <maxZ> [label]` (region-file coordinates - the numbers in a Xaero
   filename like `3_-1.zip`, not block or chunk coordinates).
   `/argus blackzone list` / `/argus blackzone remove <id>` manage them.
-- **On the map** (1.21.11 only for now): see
+- **On the map:** see
   [Xaero's World Map integration](#xaeros-world-map-integration) above.
+
+Removing one is deliberately never a single click or command: the
+**Blackzones** tab in the GUI (a **Remove** button per blackzone), the map's
+**Remove ARGUS Blackzone** option, and `/argus blackzone remove <id>` all open
+the same confirm popup naming what's about to stop being excluded, and nothing
+is removed unless you answer yes. Removal only makes the area eligible for the
+*next* upload again - it doesn't upload anything by itself.
 
 A blackzone is scoped to the layer active when it was created (multiple
 servers can reuse the same region coordinates without colliding), and
@@ -498,6 +508,30 @@ Already-uploaded regions (tracked per dimension+filename in
 `<config dir>/argus-mapper-manifest.txt`) are skipped on subsequent runs,
 so a big first export can safely be split across multiple `/argus upload`
 invocations/sessions.
+
+### Re-uploading regions that changed (off by default)
+
+By default a region is uploaded once and never again, even if you later explore
+more of it. Setting `reuploadChangedRegions=true` (or the **Re-upload regions
+that changed** toggle on the GUI's General tab) makes an upload run also include
+regions whose Xaero file is *newer* than it was when last uploaded. Uploads are
+still only ever started by you (`/argus upload` or the map's **Upload This
+Area**) - this just changes which regions that run considers already done.
+
+- **Blackzones, the coordinate cap and the size limit all still apply** to a
+  re-upload exactly as to a first upload - a changed region inside a blackzone
+  is excluded, and the network layer's own independent blackzone check still
+  runs on top.
+- **The ARGUS API replaces the stored region with the re-sent file**, so a
+  re-upload supersedes the older copy instead of duplicating it. It's off by
+  default so updating the mod doesn't start re-sending regions until you opt in.
+- "Changed" means the file's modified time is later than at upload - Xaero
+  re-saving a region without new terrain would count. Regions uploaded by an
+  older version of this mod have no recorded upload time, so the first run
+  after updating records each one's current modified time as its baseline;
+  only changes made after that are detected.
+- The "regions contributed" count stays a count of distinct regions, so a
+  re-upload doesn't inflate it.
 
 ## Testing
 

@@ -76,6 +76,17 @@ class XaeroScannerTest {
     }
 
     @Test
+    void recordsEachFilesModifiedTime(@TempDir Path root) throws IOException {
+        Path file = root.resolve("0_0.zip");
+        write(file);
+        Files.setLastModifiedTime(file, java.nio.file.attribute.FileTime.fromMillis(1_700_000_000_000L));
+
+        XaeroScanner.ScanResult result = XaeroScanner.scan(root, false);
+
+        assertEquals(1_700_000_000_000L, result.regions().get(0).lastModifiedMillis());
+    }
+
+    @Test
     void missingRootReturnsEmptyNotError() throws IOException {
         XaeroScanner.ScanResult result = XaeroScanner.scan(Path.of("does-not-exist-argus-test"), false);
         assertTrue(result.regions().isEmpty());

@@ -76,13 +76,15 @@ public final class UploadRunner {
      * only caller in production.
      */
     static FilterResult filterRegions(List<RegionFile> found, UploadManifest manifest, long maxFileSizeBytes,
-                                       Predicate<RegionFile> blackzoneFilter) {
+                                       Predicate<RegionFile> blackzoneFilter, boolean reuploadChanged) {
         List<RegionFile> toUpload = new ArrayList<>();
         int alreadyUploaded = 0;
         int tooLarge = 0;
         int excludedByBlackzone = 0;
         for (RegionFile region : found) {
-            if (manifest.isUploaded(region)) {
+            // A changed region only stops counting as "already uploaded" - it still falls through
+            // to the size and blackzone checks below, so re-uploading can never bypass either.
+            if (!manifest.needsUpload(region, reuploadChanged)) {
                 alreadyUploaded++;
             } else if (region.sizeBytes() > maxFileSizeBytes) {
                 tooLarge++;
@@ -116,7 +118,13 @@ public final class UploadRunner {
             listener.onFatalError("A run is already in progress.");
             return;
         }
-        FilterResult filtered = filterRegions(found, manifest, config.maxFileSizeBytes, blackzoneFilter);
+        try {
+            manifest.adoptBaselines(found);
+        } catch (IOException ignored) {
+            // Best-effort: without a baseline an old region just isn't re-upload-eligible yet.
+        }
+        FilterResult filtered = filterRegions(found, manifest, config.maxFileSizeBytes, blackzoneFilter,
+                config.reuploadChangedRegions);
         List<RegionFile> toUpload = filtered.toUpload();
         listener.onSummary(found.size(), filtered.alreadyUploaded(), filtered.tooLarge(), filtered.excludedByBlackzone(), toUpload.size());
         if (toUpload.isEmpty()) {

@@ -111,8 +111,9 @@ or by hand in `<instance>/config/argus-mapper.properties` before launch.
 - [ ] `/argus scan` (with some region files present in range) reports a
       "skipped N region(s) covered by a blackzone" line if any fall inside
       `0 0` to `5 5`.
-- [ ] `/argus blackzone remove test1` removes it; a re-scan no longer
-      excludes that area.
+- [ ] `/argus blackzone remove test1` opens a confirm popup (nothing is
+      removed yet); **No** leaves it in `/argus blackzone list`, **Yes**
+      removes it and a re-scan no longer excludes that area.
 
 ### 4. Uploads tab live update
 
@@ -243,6 +244,44 @@ cancellation genuinely aborts the in-flight request, not just skips ahead.
       `/argus cancel` mid-request, confirm `/argus status` flips to "No
       upload in progress" within a second or two rather than however long
       that one request would have taken.
+
+### 8. Removing a blackzone (confirm popup on every path)
+
+Add two blackzones first (e.g. one via the map, one via `/argus blackzone add`).
+
+- [ ] GUI -> **Blackzones** tab lists both with dimension and region bounds.
+      Click **Remove** on one: a popup names it and its bounds. **No** returns
+      to the GUI with both still listed; **Yes** returns with one left and a
+      `[ARGUS]` chat line confirming.
+- [ ] With 5+ blackzones, the tab pages (`<` / `>`) and removing the only entry
+      on the last page lands on a valid page rather than an empty one.
+- [ ] Xaero map: select an area overlapping a blackzone, right-click - **Remove
+      ARGUS Blackzone** is offered. Select an area overlapping none - it is
+      not offered. Choosing it opens the same popup; **Yes** makes the red
+      outline disappear from the map immediately.
+- [ ] `/argus blackzone remove <id>` from chat: the popup opens (after chat
+      closes), same **No**/**Yes** behavior. An unknown id reports an error
+      and opens nothing.
+- [ ] A removed blackzone's area is scanned/uploadable again; a blackzone you
+      did not remove is still excluded.
+
+### 9. Re-uploading changed regions (`reuploadChangedRegions`)
+
+The ARGUS API replaces the stored region with a re-sent file, so this is safe
+to run against the real API - but it does overwrite the region's stored copy, so
+use a region you're happy to have replaced.
+
+- [ ] Default config: after uploading a region, walk further into it so Xaero
+      re-saves it, then `/argus scan` / `/argus upload` - it is still counted
+      as "already uploaded" and not queued.
+- [ ] Set `reuploadChangedRegions=true` (or the General-tab toggle), `/argus
+      reload`. The first run after updating an older manifest baselines old
+      entries and queues nothing extra; after walking further into an uploaded
+      region, the next run queues exactly that region.
+- [ ] Blackzone that region, change it again: it is excluded (counted under
+      "excluded by blackzone"), not re-uploaded.
+- [ ] `argus-mapper-manifest.txt` gains a `dimension|file<TAB>mtime` line for
+      the re-upload; "Regions contributed" on the Stats tab does not go up.
 
 ## Known gaps going in (not yet fixed, just documented)
 

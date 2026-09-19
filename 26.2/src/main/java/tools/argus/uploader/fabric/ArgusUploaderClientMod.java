@@ -96,6 +96,7 @@ public final class ArgusUploaderClientMod implements ClientModInitializer {
         // javadoc for the NoClassDefFoundError this avoids.
         GuiLauncher.isAvailable();
         ClientTickEvents.END_CLIENT_TICK.register(GuiLauncher::tick);
+        ClientTickEvents.END_CLIENT_TICK.register(BlackzoneRemoval::tick);
 
         // Not wired here (see NOTES.md): PlayerDistanceTracker and real ARD-backed nether highway
         // geometry (NetherHighwayFilter is a fail-closed stub - see its own javadoc). Everything

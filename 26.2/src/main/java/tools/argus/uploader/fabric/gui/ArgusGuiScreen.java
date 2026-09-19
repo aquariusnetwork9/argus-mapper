@@ -6,12 +6,14 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import tools.argus.uploader.core.ArgusConfig;
+import tools.argus.uploader.core.BlackZone;
 import tools.argus.uploader.core.DiscordWebhookClient;
 import tools.argus.uploader.core.MapperStats;
 import tools.argus.uploader.core.ServerProfile;
 import tools.argus.uploader.core.UploadManifest;
 import tools.argus.uploader.core.UploadTracker;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.fabric.BlackzoneRemoval;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -33,13 +35,13 @@ import java.util.List;
  * Fabric's own DrawContextExampleScreen.java reference).
  *
  * <p><b>No Road Dept. (ARD) tab here</b>, unlike the 1.21.x builds: ARD has no 26.2 port at all
- * (see 26.2/NOTES.md), so this screen has 6 tabs, not 7 - General, Token, Servers, Stats,
- * Uploads, API. If ARD ever gets a 26.2 port, that tab goes back in as its own addition, not a
+ * (see 26.2/NOTES.md), so this screen has 7 tabs, not 8 - General, Token, Servers, Blackzones,
+ * Stats, Uploads, API. If ARD ever gets a 26.2 port, that tab goes back in as its own addition, not a
  * blind copy of the 1.21.x version (which reaches into ARD's config directly).
  */
 public final class ArgusGuiScreen extends Screen {
 
-    private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Stats", "Uploads", "API"};
+    private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Blackzones", "Stats", "Uploads", "API"};
     private static final int MIN_PANEL_W = 300;
     private static final int HEADER_H = 46;
     private static final int PAD = 12;
@@ -49,6 +51,7 @@ public final class ArgusGuiScreen extends Screen {
     private static final int GENERAL_TAB_CONTENT_H =
             (10 + ROW_H + ROW_GAP + 4)
                     + (10 + ROW_H + ROW_GAP + 6)
+                    + (ROW_H + ROW_GAP)
                     + (ROW_H + ROW_GAP)
                     + (ROW_H + ROW_GAP)
                     + 4
@@ -64,7 +67,7 @@ public final class ArgusGuiScreen extends Screen {
     private static final int ACCENT = 0xFF8A6BFF;
     private static final int FIELD_BG = 0xFF1A1C25;
 
-    private enum Tab { GENERAL, TOKEN, SERVERS, STATS, UPLOADS, API }
+    private enum Tab { GENERAL, TOKEN, SERVERS, BLACKZONES, STATS, UPLOADS, API }
 
     private Tab currentTab = Tab.GENERAL;
     private int panelX;
@@ -119,6 +122,7 @@ public final class ArgusGuiScreen extends Screen {
             case GENERAL -> buildGeneralTab(contentTop);
             case TOKEN -> buildTokenTab(contentTop);
             case SERVERS -> buildServersTab(contentTop);
+            case BLACKZONES -> buildBlackzonesTab(contentTop);
             case STATS -> buildStatsTab(contentTop);
             case UPLOADS -> buildUploadsTab(contentTop);
             case API -> buildApiTab(contentTop);
@@ -162,6 +166,7 @@ public final class ArgusGuiScreen extends Screen {
 
         y = toggleRow(y, "Include cave regions", cfg.includeCaves, v -> cfg.includeCaves = v);
         y = toggleRow(y, "Restrict nether uploads to ARD highways", cfg.restrictNetherToHighways, v -> cfg.restrictNetherToHighways = v);
+        y = toggleRow(y, "Re-upload regions that changed", cfg.reuploadChangedRegions, v -> cfg.reuploadChangedRegions = v);
         y += 4;
 
         y = sliderRow(y, "Pace between uploads", 1000, 10000, 500, cfg.paceMillis > Integer.MAX_VALUE ? 10000 : (int) cfg.paceMillis,
@@ -249,6 +254,54 @@ public final class ArgusGuiScreen extends Screen {
         }
         y += 8;
         label("Add servers with /argus server add <id> <layer> <matches>", panelX + PAD, y, MUTED);
+    }
+
+    // ---------------------------------------------------------------- Blackzones
+
+    private static final int BLACKZONES_PER_PAGE = 4;
+    private int blackzonePage = 0;
+
+    private void buildBlackzonesTab(int top) {
+        List<BlackZone> all = ArgusUploaderClientMod.blackzoneStore().all();
+        int y = top;
+        if (all.isEmpty()) {
+            label("No blackzones set.", panelX + PAD, y, TITLE_COLOR);
+            y += 14;
+            label("Select an area on the Xaero world map, then right-click", panelX + PAD, y, MUTED);
+            y += 11;
+            label("and choose Mark ARGUS Blackzone.", panelX + PAD, y, MUTED);
+            return;
+        }
+        int pages = (all.size() + BLACKZONES_PER_PAGE - 1) / BLACKZONES_PER_PAGE;
+        blackzonePage = Math.min(blackzonePage, pages - 1);
+        label("Never uploaded. Stored only on this device.", panelX + PAD, y, MUTED);
+        y += 14;
+
+        String activeLayer = ArgusUploaderClientMod.config().layer;
+        int from = blackzonePage * BLACKZONES_PER_PAGE;
+        for (BlackZone zone : all.subList(from, Math.min(all.size(), from + BLACKZONES_PER_PAGE))) {
+            label(zone.label().isBlank() ? zone.id() : zone.label(), panelX + PAD, y, TITLE_COLOR);
+            String where = zone.dimension() + ", region " + zone.bounds().minRegionX() + ".." + zone.bounds().maxRegionX()
+                    + ", " + zone.bounds().minRegionZ() + ".." + zone.bounds().maxRegionZ()
+                    + (zone.layer().equals(activeLayer) ? "" : "  (" + zone.layer() + ")");
+            label(where, panelX + PAD, y + 10, MUTED);
+            addRenderableWidget(new PanelButton(panelX + panelW - PAD - 60, y, 60, ROW_H, Component.literal("Remove"),
+                    () -> BlackzoneRemoval.confirmAndRemove(this, List.of(zone), () -> switchTab(Tab.BLACKZONES))));
+            y += ROW_H + ROW_GAP + 2;
+        }
+
+        if (pages > 1) {
+            int pagerY = panelY + panelH - PAD - ROW_H;
+            addRenderableWidget(new PanelButton(panelX + PAD, pagerY, 24, ROW_H, Component.literal("<"), () -> {
+                blackzonePage = Math.max(0, blackzonePage - 1);
+                switchTab(Tab.BLACKZONES);
+            }));
+            label((blackzonePage + 1) + " / " + pages, panelX + PAD + 32, pagerY + (ROW_H - 8) / 2, MUTED);
+            addRenderableWidget(new PanelButton(panelX + PAD + 70, pagerY, 24, ROW_H, Component.literal(">"), () -> {
+                blackzonePage = Math.min(pages - 1, blackzonePage + 1);
+                switchTab(Tab.BLACKZONES);
+            }));
+        }
     }
 
     // ---------------------------------------------------------------- Stats

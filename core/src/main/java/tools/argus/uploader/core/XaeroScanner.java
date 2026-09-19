@@ -74,7 +74,8 @@ public final class XaeroScanner {
                 }
                 String dimension = DimensionMapper.classify(relative);
                 long size = Files.size(path);
-                found.add(new RegionFile(path, filename, x, z, dimension, size));
+                long modified = Files.getLastModifiedTime(path).toMillis();
+                found.add(new RegionFile(path, filename, x, z, dimension, size, modified));
             }
         }
         return new ScanResult(found, rejectedOutOfRange, rejectedCaves);

@@ -8,6 +8,13 @@ stats, Discord reporting, on-join server auto-detect, Xaero World Map's right-cl
 outline / uploading-amber / uploaded-green), the GUI (`/argus gui`), and the pause-menu "ARGUS
 Menu" button.
 
+Also at parity with the 1.21.x builds: the confirm-popup blackzone removal (GUI Blackzones tab, the
+map's "Remove ARGUS Blackzone" right-click option, and `/argus blackzone remove`) and the opt-in
+`reuploadChangedRegions`. Two 26.2-specific facts for the removal popup: `ConfirmScreen` and
+`Minecraft.setScreenAndShow` are unchanged from `MapUploadTrigger`'s use of them, but the current
+screen is no longer a public `Minecraft` field (it's `Minecraft.gui.screen()`), so `BlackzoneRemoval`
+returns to the game rather than reading it - see its javadoc.
+
 Real facts, checked against the actual installed jars and Fabric's own reference project
 (`FabricMC/fabric-docs`), not assumed by analogy to older Mojang-mapping conventions:
 
@@ -49,7 +56,7 @@ Real facts, checked against the actual installed jars and Fabric's own reference
 - **Aquarius Road Department (ARD)**: no 26.2 port exists yet (see the root README's ARD section).
   Its own client code touches a larger vanilla surface (HUD registration, the Mojang session
   service, Baritone reflection) than anything ported here so far - this GUI has no Road Dept. tab
-  as a result (6 tabs, not 7; see `ArgusGuiScreen`'s own javadoc).
+  as a result (7 tabs, not 8; see `ArgusGuiScreen`'s own javadoc).
 - **Real nether-highway geometry check**: `NetherHighwayFilter` here is a stub, not the real
   ARD-backed one - it fails closed (excludes every nether region outright when
   `restrictNetherToHighways` is on) rather than doing the real per-region highway check, since the
