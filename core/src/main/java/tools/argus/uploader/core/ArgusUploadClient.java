@@ -82,8 +82,8 @@ public final class ArgusUploadClient {
             // out - see CoordLimits. This is the only method that talks to the
             // network, so this guard alone is enough to make the cap unconditional.
             return CompletableFuture.completedFuture(new UploadResult(-1, null, new IOException(
-                    "Refusing to upload " + region.filename() + ": coordinate exceeds the +/-"
-                            + CoordLimits.MAX_ABS_COORD + " limit.")));
+                    "Refusing to upload " + region.filename() + ": region coordinate exceeds the +/-"
+                            + CoordLimits.MAX_ABS_REGION + " region limit.")));
         }
         if (blackzoneStore.isBlackzoned(region.dimension(), config.layer, region)) {
             return CompletableFuture.completedFuture(new UploadResult(-1, null, new IOException(
@@ -96,12 +96,16 @@ public final class ArgusUploadClient {
                     + "&filename=" + enc(region.filename())
                     + "&dimension=" + enc(region.dimension())
                     + "&batchId=" + enc(batchId);
-            request = HttpRequest.newBuilder(URI.create(url))
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
                     .timeout(Duration.ofSeconds(60))
                     .header("Authorization", "Bearer " + config.token)
-                    .header("Content-Type", "application/octet-stream")
-                    .POST(HttpRequest.BodyPublishers.ofFile(region.path()))
-                    .build();
+                    .header("Content-Type", "application/octet-stream");
+            // The zip's own entry time is a local-time DOS stamp with no time zone, so it can't be
+            // compared across contributors; this is the same moment, in UTC epoch millis.
+            if (region.lastModifiedMillis() > 0) {
+                builder.header("X-Region-Modified", Long.toString(region.lastModifiedMillis()));
+            }
+            request = builder.POST(HttpRequest.BodyPublishers.ofFile(region.path())).build();
         } catch (Exception e) {
             // e.g. the region file vanished from disk between scan and upload - ofFile() checks
             // existence eagerly (a checked FileNotFoundException) rather than deferring to send

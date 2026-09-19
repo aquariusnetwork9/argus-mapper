@@ -64,15 +64,31 @@ class XaeroScannerTest {
 
     @Test
     void rejectsOutOfRangeCoordinatesEntirely(@TempDir Path root) throws IOException {
+        write(root.resolve("201_0.zip"));
+        write(root.resolve("0_-201.zip"));
         write(root.resolve("100000_0.zip"));
-        write(root.resolve("0_-100000.zip"));
-        write(root.resolve("99999_-99999.zip"));
+        write(root.resolve("200_-200.zip"));
 
         XaeroScanner.ScanResult result = XaeroScanner.scan(root, false);
 
         assertEquals(1, result.regions().size(), "only the in-range file should survive");
-        assertEquals(99_999, result.regions().get(0).regionX());
-        assertEquals(2, result.rejectedOutOfRange());
+        assertEquals(200, result.regions().get(0).regionX());
+        assertEquals(3, result.rejectedOutOfRange());
+    }
+
+    @Test
+    void keepsFarRegionsWhileTheLimitIsLifted(@TempDir Path root) throws IOException {
+        write(root.resolve("5000_0.zip"));
+        write(root.resolve("0_-90000.zip"));
+
+        CoordLimits.setLifted(true);
+        try {
+            XaeroScanner.ScanResult result = XaeroScanner.scan(root, false);
+            assertEquals(2, result.regions().size());
+            assertEquals(0, result.rejectedOutOfRange());
+        } finally {
+            CoordLimits.setLifted(false);
+        }
     }
 
     @Test

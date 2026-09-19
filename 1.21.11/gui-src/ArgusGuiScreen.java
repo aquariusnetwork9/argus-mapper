@@ -15,6 +15,7 @@ import tools.argus.uploader.core.ServerProfile;
 import tools.argus.uploader.core.UploadManifest;
 import tools.argus.uploader.core.UploadTracker;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.fabric.AutoUploads;
 import tools.argus.uploader.fabric.BlackzoneRemoval;
 
 import java.io.IOException;
@@ -368,11 +369,30 @@ public final class ArgusGuiScreen extends Screen {
 
     private int uploadsContentTop;
 
-    /** Deliberately does nothing but remember where the tab's content starts - unlike the other
-     *  tabs, Uploads is drawn live from {@link #renderUploads} every frame (see its javadoc for
-     *  why) rather than baked into the static labels/tileRects lists once when the tab opens. */
+    /** Adds the per-session switches, then remembers where the live-drawn part starts - unlike the
+     *  other tabs, the run progress below them is drawn every frame from {@link #renderUploads}
+     *  (see its javadoc for why) rather than baked into the static labels/tileRects lists. */
     private void buildUploadsTab(int top) {
-        uploadsContentTop = top;
+        int y = top;
+        y = toggleRow(y, "Live upload (this session only)", AutoUploads.isLive(), on -> autoToggle(AutoUploads.Kind.LIVE, on));
+        y = toggleRow(y, "Whole-map upload (this session only)", AutoUploads.isWholeMap(), on -> autoToggle(AutoUploads.Kind.WHOLE_MAP, on));
+        if (AutoUploads.isLive() && AutoUploads.isPaused()) {
+            addDrawableChild(new PanelButton(panelX + PAD, y, 140, ROW_H, Text.literal("Resume live upload"), () -> {
+                AutoUploads.resumeLive();
+                switchTab(Tab.UPLOADS);
+            }));
+            y += ROW_H + ROW_GAP;
+        }
+        uploadsContentTop = y + 4;
+    }
+
+    private void autoToggle(AutoUploads.Kind kind, boolean on) {
+        if (on) {
+            AutoUploads.requestEnable(kind, this, () -> switchTab(Tab.UPLOADS));
+        } else {
+            AutoUploads.disable(kind);
+            switchTab(Tab.UPLOADS);
+        }
     }
 
     /**
@@ -387,6 +407,8 @@ public final class ArgusGuiScreen extends Screen {
     private void renderUploads(DrawContext context) {
         UploadTracker tracker = ArgusUploaderClientMod.activeUpload();
         int y = uploadsContentTop;
+        context.drawTextWithShadow(this.textRenderer, "Live upload: " + AutoUploads.liveStatus(), panelX + PAD, y, MUTED);
+        y += 14;
         if (tracker == null) {
             context.drawTextWithShadow(this.textRenderer, "No upload has run yet this session.", panelX + PAD, y, MUTED);
             context.drawTextWithShadow(this.textRenderer, "Run /argus scan, then /argus upload to start one.", panelX + PAD, y + 12, MUTED);

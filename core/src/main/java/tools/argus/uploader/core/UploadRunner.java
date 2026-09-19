@@ -114,6 +114,12 @@ public final class UploadRunner {
      *                        in one layer alone can't defeat a blackzone.
      */
     public void start(List<RegionFile> found, String runIdPrefix, Predicate<RegionFile> blackzoneFilter) {
+        start(found, runIdPrefix, blackzoneFilter, config.reuploadChangedRegions);
+    }
+
+    /** @param reuploadChanged overrides {@link ArgusConfig#reuploadChangedRegions} for this run */
+    public void start(List<RegionFile> found, String runIdPrefix, Predicate<RegionFile> blackzoneFilter,
+                      boolean reuploadChanged) {
         if (running.get()) {
             listener.onFatalError("A run is already in progress.");
             return;
@@ -124,7 +130,7 @@ public final class UploadRunner {
             // Best-effort: without a baseline an old region just isn't re-upload-eligible yet.
         }
         FilterResult filtered = filterRegions(found, manifest, config.maxFileSizeBytes, blackzoneFilter,
-                config.reuploadChangedRegions);
+                reuploadChanged);
         List<RegionFile> toUpload = filtered.toUpload();
         listener.onSummary(found.size(), filtered.alreadyUploaded(), filtered.tooLarge(), filtered.excludedByBlackzone(), toUpload.size());
         if (toUpload.isEmpty()) {

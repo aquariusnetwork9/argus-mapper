@@ -82,7 +82,8 @@ bar, queued/done/failed counts, and how many were excluded by a
 blackzone), backed by a tracker that lives on the background upload run
 itself - it keeps updating even if you close and reopen the GUI mid-run,
 and survives a server disconnect/switch, since the run doesn't stop until
-the game does.
+the game does. It also holds the per-session switches for
+[live and whole-map upload](#automatic-uploads-live-and-whole-map).
 
 Available on every version this mod supports - **1.21.4**, **1.21.8**,
 **1.21.11**, and **26.2**. 1.21.11 needed its own port of the GUI's widget
@@ -199,10 +200,13 @@ scoping it out of a private conversation after the fact doesn't undo that.
 
 ## Coordinate cap
 
-The mod can never scan or upload a region whose X or Z coordinate is 6
-digits or more - magnitude is capped at 99,999 (`CoordLimits`), bounding
-the whole mod to roughly a 200k x 200k block area centered on origin, in
-every dimension. This is enforced twice, independently:
+By default the mod never scans or uploads a region more than 200 regions from
+the origin on either axis (`CoordLimits`). A region is 512x512 blocks and the
+numbers in a Xaero filename like `3_-1.zip` are region numbers, so that bounds
+the mod to roughly +/-102,400 blocks on each axis, in every dimension.
+(Earlier versions applied a 99,999 cap to the region number as though it were a
+block coordinate - over 51 million blocks, which limited nothing.) This is
+enforced twice, independently:
 
 1. `XaeroScanner` never returns an out-of-range file in the first place -
    it isn't in the list `/argus scan` or `/argus upload` ever sees.
@@ -210,7 +214,9 @@ every dimension. This is enforced twice, independently:
    the network - refuses an out-of-range region on its own, even if
    something else were to hand it one directly.
 
-`/argus scan` reports how many region files were skipped for this reason.
+`/argus scan` reports how many region files were skipped for this reason. The
+per-session [whole-map upload](#automatic-uploads-live-and-whole-map) switch
+lifts the limit until you turn it off, disconnect or close the game.
 
 ## Nether highway privacy gate
 
@@ -302,6 +308,37 @@ stored locally at `<config dir>/argus-mapper-blackzones.properties` -
 excluded from `.gitignore`'s properties-file rule the same way the main
 config is, so it's never accidentally committed.
 
+## Automatic uploads: live and whole-map
+
+Two opt-in switches, each on the GUI's **Uploads** tab and behind its own
+confirm popup. Both are **per session only**: never written to the config,
+off again after any restart or crash, and switched off when you disconnect.
+They are off by default and there is no setting that turns them on for you.
+
+- **Live upload** (`/argus live on|off|resume`) - while on, the mod uploads
+  regions you explore, automatically, on a random delay of 45-80 minutes
+  (a compromise between streaming your path as it happens and uploading by
+  hand, so upload timing doesn't reveal where you are right now). Each
+  cycle sends regions Xaero saved since you turned it on that are new or
+  changed since their last upload; a changed region replaces its older copy.
+  Blackzones, the nether gate and the size limit all still apply.
+- **Whole-map upload** (`/argus wholemap on|off`) - lifts the region
+  distance limit (see [Coordinate cap](#coordinate-cap)) for the session, so
+  regions anywhere on the map can be uploaded, by hand or by live upload.
+  Blackzones still apply.
+
+**Live upload pauses at once on a teleport**: the server's "Teleporting to X
+in N seconds" message, a move of more than 128 blocks in one step, or a
+dimension change (respawning far from where you died counts). Any upload in
+flight is cancelled. Once you have arrived and settled (5 seconds with no
+further jump, and no other teleport pending), two popups follow: whether to
+blackzone the area around you (3x3 regions), then whether to resume. Nothing
+resumes until you confirm, and resuming starts a fresh random delay. The popups
+only open when no other screen is showing.
+
+Positions are compared tick to tick to spot a jump and are never stored or
+sent anywhere.
+
 ## Config file (`argus-mapper.properties`)
 
 See `config.example.properties` for the full set of fields with comments.
@@ -341,6 +378,9 @@ Beyond the API basics (`apiBaseUrl`, `token`, `layer`), notable ones:
 - `/argus blackzone add <id> <dimension> <minX> <minZ> <maxX> <maxZ>
   [label]` / `/argus blackzone list` / `/argus blackzone remove <id>` -
   manage blackzones (see "Blackzones" below).
+- `/argus live [on|off|resume]` / `/argus wholemap [on|off]` - the per-session
+  [automatic upload](#automatic-uploads-live-and-whole-map) switches; no
+  argument prints their status. `on` asks for confirmation first.
 - `/argus gui` - opens the [GUI](#gui) (see above) - everything above also
   works as a screen, not just chat commands.
 
@@ -508,6 +548,12 @@ Already-uploaded regions (tracked per dimension+filename in
 `<config dir>/argus-mapper-manifest.txt`) are skipped on subsequent runs,
 so a big first export can safely be split across multiple `/argus upload`
 invocations/sessions.
+
+Every upload also carries `X-Region-Modified: <the file's modified time, UTC epoch
+milliseconds>` (left off if unknown). The zip's own entry time is a local-time
+stamp with no time zone, so the API uses this header to keep only the newest copy of
+a region. Runs are tagged by `batchId` prefix: `run-`, `map-run-` (map selection)
+and `live-run-`.
 
 ### Re-uploading regions that changed (off by default)
 

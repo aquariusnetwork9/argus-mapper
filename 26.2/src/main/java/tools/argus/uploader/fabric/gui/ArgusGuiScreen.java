@@ -13,6 +13,7 @@ import tools.argus.uploader.core.ServerProfile;
 import tools.argus.uploader.core.UploadManifest;
 import tools.argus.uploader.core.UploadTracker;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.fabric.AutoUploads;
 import tools.argus.uploader.fabric.BlackzoneRemoval;
 
 import java.io.IOException;
@@ -359,12 +360,33 @@ public final class ArgusGuiScreen extends Screen {
     private int uploadsContentTop;
 
     private void buildUploadsTab(int top) {
-        uploadsContentTop = top;
+        int y = top;
+        y = toggleRow(y, "Live upload (this session only)", AutoUploads.isLive(), on -> autoToggle(AutoUploads.Kind.LIVE, on));
+        y = toggleRow(y, "Whole-map upload (this session only)", AutoUploads.isWholeMap(), on -> autoToggle(AutoUploads.Kind.WHOLE_MAP, on));
+        if (AutoUploads.isLive() && AutoUploads.isPaused()) {
+            addRenderableWidget(new PanelButton(panelX + PAD, y, 140, ROW_H, Component.literal("Resume live upload"), () -> {
+                AutoUploads.resumeLive();
+                switchTab(Tab.UPLOADS);
+            }));
+            y += ROW_H + ROW_GAP;
+        }
+        uploadsContentTop = y + 4;
+    }
+
+    private void autoToggle(AutoUploads.Kind kind, boolean on) {
+        if (on) {
+            AutoUploads.requestEnable(kind, this, () -> switchTab(Tab.UPLOADS));
+        } else {
+            AutoUploads.disable(kind);
+            switchTab(Tab.UPLOADS);
+        }
     }
 
     private void renderUploads(GuiGraphicsExtractor context) {
         UploadTracker tracker = ArgusUploaderClientMod.activeUpload();
         int y = uploadsContentTop;
+        context.text(this.font, "Live upload: " + AutoUploads.liveStatus(), panelX + PAD, y, MUTED, true);
+        y += 14;
         if (tracker == null) {
             context.text(this.font, "No upload has run yet this session.", panelX + PAD, y, MUTED, true);
             context.text(this.font, "Run /argus scan, then /argus upload to start one.", panelX + PAD, y + 12, MUTED, true);

@@ -30,7 +30,7 @@ public final class XaeroScanner {
     /**
      * @param regions           in-range, non-caves-unless-requested region files
      * @param rejectedOutOfRange region files found but excluded because |x| or |z|
-     *                           exceeded {@link CoordLimits#MAX_ABS_COORD} — see that
+     *                           exceeded {@link CoordLimits#MAX_ABS_REGION} — see that
      *                           class for why this exists
      * @param rejectedCaves      cave-branch region files excluded because includeCaves was false
      */

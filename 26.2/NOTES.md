@@ -8,7 +8,9 @@ stats, Discord reporting, on-join server auto-detect, Xaero World Map's right-cl
 outline / uploading-amber / uploaded-green), the GUI (`/argus gui`), and the pause-menu "ARGUS
 Menu" button.
 
-Also at parity with the 1.21.x builds: the confirm-popup blackzone removal (GUI Blackzones tab, the
+Also at parity with the 1.21.x builds: live and whole-map upload (`AutoUploads`; the open screen is
+read from `Minecraft.gui.screen()` and the teleport-countdown chat comes from Fabric's
+`ClientReceiveMessageEvents.GAME`, `(Component, boolean)` here), and the confirm-popup blackzone removal (GUI Blackzones tab, the
 map's "Remove ARGUS Blackzone" right-click option, and `/argus blackzone remove`) and the opt-in
 `reuploadChangedRegions`. Two 26.2-specific facts for the removal popup: `ConfirmScreen` and
 `Minecraft.setScreenAndShow` are unchanged from `MapUploadTrigger`'s use of them, but the current
