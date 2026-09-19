@@ -92,6 +92,27 @@ class PauseButtonPlacementTest {
     }
 
     @Test
+    void widgetsAnotherModParkedOffScreenAreIgnored() {
+        // ReplayMod hides the buttons it replaces by moving them to (-1000, -1000) and shifts the
+        // rest of the stack up 24px, so the layout we see can hold off-screen full-size buttons.
+        List<Rect> widgets = new ArrayList<>();
+        widgets.add(new Rect(218, 100, 204, 20));
+        widgets.add(new Rect(-1000, -1000, 98, 20));
+        widgets.add(new Rect(-1000, -1000, 98, 20));
+        widgets.add(new Rect(-1000, -1000, 204, 20));
+        widgets.add(new Rect(218, 124, 204, 20));
+
+        assertEquals(new Rect(218, 148, 204, 20), PauseButtonPlacement.place(widgets, W, H));
+    }
+
+    @Test
+    void ifEverythingFullSizeIsOffScreenItStillFindsACorner() {
+        List<Rect> widgets = List.of(new Rect(-1000, -1000, 204, 20));
+
+        assertEquals(new Rect(4, H - 24, 100, 20), PauseButtonPlacement.place(widgets, W, H));
+    }
+
+    @Test
     void anEmptyScreenGetsTheBottomLeftCorner() {
         assertEquals(new Rect(4, H - 24, 100, 20), PauseButtonPlacement.place(List.of(), W, H));
     }
