@@ -22,6 +22,7 @@ class ArgusConfigTest {
         assertEquals("", cfg.token);
         assertEquals("", cfg.layer);
         assertFalse(cfg.isUsable());
+        assertFalse(cfg.reuploadChangedRegions, "re-uploading must be opt-in");
     }
 
     @Test
@@ -42,6 +43,7 @@ class ArgusConfigTest {
         cfg.discordApplicationId = "123";
         cfg.enableRichPresence = true;
         cfg.enableAddonApi = false;
+        cfg.reuploadChangedRegions = true;
         cfg.save(file);
 
         ArgusConfig reloaded = ArgusConfig.load(file);
@@ -59,6 +61,7 @@ class ArgusConfigTest {
         assertEquals("123", reloaded.discordApplicationId);
         assertTrue(reloaded.enableRichPresence);
         assertFalse(reloaded.enableAddonApi);
+        assertTrue(reloaded.reuploadChangedRegions);
         assertTrue(reloaded.isUsable());
     }
 

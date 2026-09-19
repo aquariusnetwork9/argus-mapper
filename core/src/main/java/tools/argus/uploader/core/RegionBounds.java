@@ -29,4 +29,9 @@ public record RegionBounds(int minRegionX, int minRegionZ, int maxRegionX, int m
     public boolean contains(RegionFile region) {
         return contains(region.regionX(), region.regionZ());
     }
+
+    public boolean intersects(RegionBounds other) {
+        return minRegionX <= other.maxRegionX && maxRegionX >= other.minRegionX
+                && minRegionZ <= other.maxRegionZ && maxRegionZ >= other.minRegionZ;
+    }
 }

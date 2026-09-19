@@ -43,4 +43,15 @@ class RegionBoundsTest {
         assertThrows(IllegalArgumentException.class, () -> new RegionBounds(5, 0, 0, 5));
         assertThrows(IllegalArgumentException.class, () -> new RegionBounds(0, 5, 5, 0));
     }
+
+    @Test
+    void intersectsCountsSharedEdgesAndRejectsGaps() {
+        RegionBounds base = new RegionBounds(0, 0, 4, 4);
+        assertTrue(base.intersects(new RegionBounds(2, 2, 8, 8)));
+        assertTrue(base.intersects(new RegionBounds(4, 4, 6, 6)));
+        assertTrue(base.intersects(new RegionBounds(1, 1, 2, 2)));
+        assertTrue(new RegionBounds(1, 1, 2, 2).intersects(base));
+        assertFalse(base.intersects(new RegionBounds(5, 0, 9, 4)));
+        assertFalse(base.intersects(new RegionBounds(0, -9, 4, -1)));
+    }
 }

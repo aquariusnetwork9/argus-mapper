@@ -1,0 +1,380 @@
+package tools.argus.uploader.fabric;
+
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.screen.ConfirmScreen;
+import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.world.ClientWorld;
+import net.minecraft.registry.RegistryKey;
+import net.minecraft.text.Text;
+import net.minecraft.world.World;
+import tools.argus.uploader.core.ArgusConfig;
+import tools.argus.uploader.core.ArgusUploadClient;
+import tools.argus.uploader.core.AutoUploadCoordinator;
+import tools.argus.uploader.core.AutoUploadSelection;
+import tools.argus.uploader.core.BlackZone;
+import tools.argus.uploader.core.BlackzoneStore;
+import tools.argus.uploader.core.CoordLimits;
+import tools.argus.uploader.core.RegionBounds;
+import tools.argus.uploader.core.RegionFile;
+import tools.argus.uploader.core.UploadManifest;
+import tools.argus.uploader.core.UploadProgressListener;
+import tools.argus.uploader.core.UploadRunner;
+import tools.argus.uploader.core.UploadTracker;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Random;
+import java.util.Set;
+
+/**
+ * The two per-session upload switches: live upload (automatic, on a random 45-80 minute delay) and
+ * whole-map upload (lifts the region distance limit). Both are in-memory only - never written to
+ * config - so both are off after a restart, a crash, or leaving the server. Each needs its own
+ * confirm popup to turn on. Live upload pauses on any teleport and asks before resuming.
+ */
+public final class AutoUploads {
+
+    public enum Kind { LIVE, WHOLE_MAP }
+
+    private static final Set<String> BLACKZONE_DIMENSIONS = Set.of("overworld", "the_nether", "theend");
+
+    private static final String LIVE_BODY = "ARGUS Mapper will upload the regions you explore from now on, "
+            + "automatically, about every 45-80 minutes (random), until you turn it off, disconnect or close "
+            + "the game. A changed region replaces its older copy. Blackzones still apply.\n\n"
+            + "It pauses at once if you teleport (128+ blocks, a dimension change, or a server teleport "
+            + "countdown). Once you've arrived and settled, it asks whether to blackzone the spot and "
+            + "whether to resume.";
+
+    private static final String WHOLE_MAP_BODY = "Uploads are normally limited to within "
+            + CoordLimits.MAX_ABS_REGION + " regions (about " + CoordLimits.MAX_ABS_REGION * 512
+            + " blocks) of the world origin. This lifts that limit, so regions anywhere on the map - "
+            + "including far-away bases - can be uploaded.\n\nBlackzones still apply. It turns itself off "
+            + "when you disconnect or close the game.";
+
+    private static final AutoUploadCoordinator coordinator = new AutoUploadCoordinator(new HostImpl(), new Random());
+
+    private static volatile Kind pendingEnable;
+    private static volatile AutoUploadCoordinator.Teleport pendingTeleport;
+    private static volatile UploadRunner autoRunner;
+    private static volatile String enabledLayer;
+
+    private AutoUploads() {
+    }
+
+    public static void register() {
+        ClientTickEvents.END_CLIENT_TICK.register(AutoUploads::onTick);
+        ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
+            if (!overlay) {
+                coordinator.onChatMessage(message.getString(), System.currentTimeMillis());
+            }
+        });
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> resetAll());
+    }
+
+    public static boolean isLive() {
+        return coordinator.isLive();
+    }
+
+    public static boolean isPaused() {
+        return coordinator.isPaused();
+    }
+
+    public static boolean isWholeMap() {
+        return CoordLimits.isLifted();
+    }
+
+    public static String liveStatus() {
+        return coordinator.statusLine(System.currentTimeMillis());
+    }
+
+    /** Shows the confirm popup over {@code previous}; {@code afterAnswered} runs on either answer. */
+    public static void requestEnable(Kind kind, Screen previous, Runnable afterAnswered) {
+        showEnablePopup(MinecraftClient.getInstance(), kind, previous, afterAnswered);
+    }
+
+    /** Chat-command entry point: the popup opens on the next tick, after chat has closed. */
+    public static void requestEnableFromCommand(Kind kind) {
+        pendingEnable = kind;
+    }
+
+    public static void disable(Kind kind) {
+        if (kind == Kind.LIVE) {
+            coordinator.setLive(false, System.currentTimeMillis());
+            enabledLayer = null;
+        } else {
+            CoordLimits.setLifted(false);
+        }
+    }
+
+    public static void resumeLive() {
+        coordinator.resume(System.currentTimeMillis());
+    }
+
+    private static void resetAll() {
+        coordinator.reset();
+        CoordLimits.setLifted(false);
+        enabledLayer = null;
+        pendingEnable = null;
+        pendingTeleport = null;
+    }
+
+    private static void onTick(MinecraftClient client) {
+        long now = System.currentTimeMillis();
+        if (client.player == null || client.world == null) {
+            coordinator.onPlayerGone();
+        } else {
+            coordinator.onPlayerPosition(dimensionOf(client.world),
+                    client.player.getX(), client.player.getY(), client.player.getZ(), now);
+        }
+        coordinator.tick(now);
+
+        Kind kind = pendingEnable;
+        if (kind != null) {
+            pendingEnable = null;
+            showEnablePopup(client, kind, client.currentScreen, () -> {
+            });
+        }
+        AutoUploadCoordinator.Teleport teleport = pendingTeleport;
+        if (teleport != null && client.currentScreen == null) {
+            pendingTeleport = null;
+            showBlackzonePrompt(client, teleport);
+        }
+    }
+
+    private static String dimensionOf(ClientWorld world) {
+        RegistryKey<World> key = world.getRegistryKey();
+        if (key == World.OVERWORLD) {
+            return "overworld";
+        }
+        if (key == World.NETHER) {
+            return "the_nether";
+        }
+        if (key == World.END) {
+            return "theend";
+        }
+        return key.toString();
+    }
+
+    // ------------------------------------------------------------ enabling
+
+    private static void showEnablePopup(MinecraftClient client, Kind kind, Screen previous, Runnable afterAnswered) {
+        ArgusConfig config = ArgusUploaderClientMod.config();
+        if (!config.isUsable()) {
+            feedback(client, "Set a token and layer first (/argus settoken, /argus setlayer).");
+            afterAnswered.run();
+            return;
+        }
+        boolean alreadyOn = kind == Kind.LIVE ? coordinator.isLive() : CoordLimits.isLifted();
+        if (alreadyOn) {
+            feedback(client, (kind == Kind.LIVE ? "Live" : "Whole-map") + " upload is already on.");
+            afterAnswered.run();
+            return;
+        }
+        String title = kind == Kind.LIVE ? "Turn on live upload?" : "Turn on whole-map upload?";
+        String body = kind == Kind.LIVE ? LIVE_BODY : WHOLE_MAP_BODY;
+        client.setScreen(new ConfirmScreen(
+                confirmed -> {
+                    client.setScreen(previous);
+                    if (confirmed) {
+                        enable(client, kind);
+                    }
+                    afterAnswered.run();
+                },
+                Text.literal(title), Text.literal(body), Text.literal("Turn on"), Text.literal("Cancel")));
+    }
+
+    private static void enable(MinecraftClient client, Kind kind) {
+        if (kind == Kind.WHOLE_MAP) {
+            CoordLimits.setLifted(true);
+            feedback(client, "Whole-map upload is on: the distance limit is lifted until you turn it off, disconnect or close the game.");
+            return;
+        }
+        RegionResolver.Resolved resolved = RegionResolver.resolve(null);
+        if (resolved.isError()) {
+            feedback(client, "Can't turn on live upload: " + firstLine(resolved.error()));
+            return;
+        }
+        try {
+            // Baseline what's already on disk so only saves made from now on count as changes.
+            UploadManifest.load(ArgusUploaderClientMod.manifestPath()).adoptBaselines(resolved.regions());
+        } catch (IOException ignored) {
+            // Best-effort: without a baseline an old region just won't be re-sent until it is.
+        }
+        enabledLayer = ArgusUploaderClientMod.config().layer;
+        coordinator.setLive(true, System.currentTimeMillis());
+        feedback(client, "Live upload is on. The first upload is 45-80 minutes from now, then on a random delay.");
+    }
+
+    // ------------------------------------------------------------ cycles
+
+    private static void startCycle(long liveSinceMillis) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        ArgusConfig config = ArgusUploaderClientMod.config();
+        if (!config.isUsable() || !config.layer.equals(enabledLayer)) {
+            feedback(client, "Live upload turned itself off: the token or server layer changed.");
+            resetAll();
+            return;
+        }
+        RegionResolver.Resolved resolved = RegionResolver.resolve(null);
+        if (resolved.isError()) {
+            feedback(client, "Live upload skipped this time: " + firstLine(resolved.error()));
+            return;
+        }
+        try {
+            UploadManifest manifest = UploadManifest.load(ArgusUploaderClientMod.manifestPath());
+            List<RegionFile> toSend = AutoUploadSelection.select(resolved.regions(), manifest, liveSinceMillis);
+            if (toSend.isEmpty()) {
+                feedback(client, "Live upload: nothing new to send.");
+                return;
+            }
+            BlackzoneStore blackzones = ArgusUploaderClientMod.blackzoneStore();
+            ArgusUploadClient uploadClient = new ArgusUploadClient(config, blackzones);
+            UploadTracker tracker = new UploadTracker(new LiveProgressListener(client, manifest));
+            ArgusUploaderClientMod.setActiveUpload(tracker);
+            UploadRunner runner = new UploadRunner(uploadClient, config, manifest, tracker);
+            ArgusUploaderClientMod.setActiveRunner(runner);
+            autoRunner = runner;
+            runner.start(toSend, "live-run-" + System.currentTimeMillis(),
+                    region -> !blackzones.isBlackzoned(region.dimension(), config.layer, region), true);
+        } catch (IOException e) {
+            feedback(client, "Live upload failed to start: " + e.getMessage());
+        }
+    }
+
+    private static String firstLine(String message) {
+        int newline = message.indexOf('\n');
+        return newline < 0 ? message : message.substring(0, newline);
+    }
+
+    // ------------------------------------------------------------ teleport prompts
+
+    private static void showBlackzonePrompt(MinecraftClient client, AutoUploadCoordinator.Teleport teleport) {
+        ArgusConfig config = ArgusUploaderClientMod.config();
+        if (!BLACKZONE_DIMENSIONS.contains(teleport.dimension()) || config.layer.isBlank()) {
+            showResumePrompt(client);
+            return;
+        }
+        String what = switch (teleport.cause()) {
+            case JUMP -> "You moved about " + Math.round(teleport.blocksMoved()) + " blocks in one step.";
+            case DIMENSION_CHANGE -> "You changed dimension.";
+            case ANNOUNCED -> "The server announced a teleport.";
+        };
+        client.setScreen(new ConfirmScreen(
+                blackzoneHere -> {
+                    if (blackzoneHere) {
+                        createBlackzone(client, teleport);
+                    }
+                    showResumePrompt(client);
+                },
+                Text.literal("Teleport detected - live upload paused"),
+                Text.literal(what + "\nBlackzone the area around where you are now (3x3 regions, about 1,500 "
+                        + "blocks across)? Nothing in it will ever be uploaded."),
+                Text.literal("Blackzone here"), Text.literal("Skip")));
+    }
+
+    private static void createBlackzone(MinecraftClient client, AutoUploadCoordinator.Teleport teleport) {
+        int regionX = (int) Math.floor(teleport.x()) >> 9;
+        int regionZ = (int) Math.floor(teleport.z()) >> 9;
+        RegionBounds bounds = RegionBounds.ofCorners(regionX - 1, regionZ - 1, regionX + 1, regionZ + 1);
+        try {
+            ArgusUploaderClientMod.blackzoneStore().addOrReplace(new BlackZone(
+                    "auto-" + System.currentTimeMillis(), teleport.dimension(),
+                    ArgusUploaderClientMod.config().layer, bounds, "teleport arrival"));
+            feedback(client, "Blackzone saved around you. Remove it later from the GUI's Blackzones tab.");
+        } catch (IOException e) {
+            feedback(client, "Failed to save blackzone: " + e.getMessage());
+        }
+    }
+
+    private static void showResumePrompt(MinecraftClient client) {
+        client.setScreen(new ConfirmScreen(
+                resume -> {
+                    client.setScreen(null);
+                    if (resume) {
+                        coordinator.resume(System.currentTimeMillis());
+                        feedback(client, "Live upload resumed. The next upload is on a fresh random delay.");
+                    } else {
+                        coordinator.promptFinished();
+                        feedback(client, "Live upload stays paused. Use /argus live resume when you're ready.");
+                    }
+                },
+                Text.literal("Resume live upload?"),
+                Text.literal("It stays paused until you say so."),
+                Text.literal("Resume"), Text.literal("Stay paused")));
+    }
+
+    // ------------------------------------------------------------ plumbing
+
+    private static void feedback(MinecraftClient client, String message) {
+        client.execute(() -> {
+            if (client.player != null) {
+                client.player.sendMessage(Text.literal("[ARGUS] " + message), false);
+            }
+        });
+    }
+
+    private static final class HostImpl implements AutoUploadCoordinator.Host {
+
+        @Override
+        public boolean isUploadRunning() {
+            UploadRunner runner = ArgusUploaderClientMod.activeRunner();
+            return runner != null && runner.isRunning();
+        }
+
+        @Override
+        public void startCycle(long liveSinceMillis) {
+            AutoUploads.startCycle(liveSinceMillis);
+        }
+
+        @Override
+        public void cancelAutoRun() {
+            UploadRunner runner = autoRunner;
+            if (runner != null && runner.isRunning()) {
+                runner.cancel();
+            }
+        }
+
+        @Override
+        public void promptTeleport(AutoUploadCoordinator.Teleport teleport) {
+            pendingTeleport = teleport;
+        }
+    }
+
+    private static final class LiveProgressListener implements UploadProgressListener {
+        private final MinecraftClient client;
+        private final UploadManifest manifest;
+
+        LiveProgressListener(MinecraftClient client, UploadManifest manifest) {
+            this.client = client;
+            this.manifest = manifest;
+        }
+
+        @Override
+        public void onSummary(int totalFound, int alreadyUploaded, int tooLarge, int excludedByBlackzone, int toUpload) {
+            feedback(client, "Live upload: sending " + toUpload + " region(s).");
+        }
+
+        @Override
+        public void onRegionUploaded(RegionFile region, int done, int total) {
+        }
+
+        @Override
+        public void onRegionFailed(RegionFile region, String reason, int done, int total) {
+            feedback(client, "Live upload failed " + region.filename() + " (" + region.dimension() + "): " + reason);
+        }
+
+        @Override
+        public void onFatalError(String message) {
+            feedback(client, message);
+        }
+
+        @Override
+        public void onComplete(int succeeded, int failed) {
+            feedback(client, "Live upload finished: " + succeeded + " ok, " + failed + " failed.");
+            ArgusCommand.onUploadRunComplete(manifest, succeeded, failed, (message, isError) -> feedback(client, message));
+        }
+    }
+}

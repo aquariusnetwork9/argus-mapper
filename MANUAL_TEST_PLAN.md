@@ -111,8 +111,9 @@ or by hand in `<instance>/config/argus-mapper.properties` before launch.
 - [ ] `/argus scan` (with some region files present in range) reports a
       "skipped N region(s) covered by a blackzone" line if any fall inside
       `0 0` to `5 5`.
-- [ ] `/argus blackzone remove test1` removes it; a re-scan no longer
-      excludes that area.
+- [ ] `/argus blackzone remove test1` opens a confirm popup (nothing is
+      removed yet); **No** leaves it in `/argus blackzone list`, **Yes**
+      removes it and a re-scan no longer excludes that area.
 
 ### 4. Uploads tab live update
 
@@ -243,6 +244,93 @@ cancellation genuinely aborts the in-flight request, not just skips ahead.
       `/argus cancel` mid-request, confirm `/argus status` flips to "No
       upload in progress" within a second or two rather than however long
       that one request would have taken.
+
+### 8. Removing a blackzone (confirm popup on every path)
+
+Add two blackzones first (e.g. one via the map, one via `/argus blackzone add`).
+
+- [ ] GUI -> **Blackzones** tab lists both with dimension and region bounds.
+      Click **Remove** on one: a popup names it and its bounds. **No** returns
+      to the GUI with both still listed; **Yes** returns with one left and a
+      `[ARGUS]` chat line confirming.
+- [ ] With 5+ blackzones, the tab pages (`<` / `>`) and removing the only entry
+      on the last page lands on a valid page rather than an empty one.
+- [ ] Xaero map: select an area overlapping a blackzone, right-click - **Remove
+      ARGUS Blackzone** is offered. Select an area overlapping none - it is
+      not offered. Choosing it opens the same popup; **Yes** makes the red
+      outline disappear from the map immediately.
+- [ ] `/argus blackzone remove <id>` from chat: the popup opens (after chat
+      closes), same **No**/**Yes** behavior. An unknown id reports an error
+      and opens nothing.
+- [ ] A removed blackzone's area is scanned/uploadable again; a blackzone you
+      did not remove is still excluded.
+
+### 9. Re-uploading changed regions (`reuploadChangedRegions`)
+
+The ARGUS API replaces the stored region with a re-sent file, so this is safe
+to run against the real API - but it does overwrite the region's stored copy, so
+use a region you're happy to have replaced.
+
+- [ ] Default config: after uploading a region, walk further into it so Xaero
+      re-saves it, then `/argus scan` / `/argus upload` - it is still counted
+      as "already uploaded" and not queued.
+- [ ] Set `reuploadChangedRegions=true` (or the General-tab toggle), `/argus
+      reload`. The first run after updating an older manifest baselines old
+      entries and queues nothing extra; after walking further into an uploaded
+      region, the next run queues exactly that region.
+- [ ] Blackzone that region, change it again: it is excluded (counted under
+      "excluded by blackzone"), not re-uploaded.
+- [ ] `argus-mapper-manifest.txt` gains a `dimension|file<TAB>mtime` line for
+      the re-upload; "Regions contributed" on the Stats tab does not go up.
+
+### 10. Region distance limit and whole-map upload
+
+- [ ] `/argus scan` with regions farther than 200 out on either axis: the
+      "skipped N region(s) outside the +/-200 region limit" line appears and
+      those files are not in the upload count.
+- [ ] `/argus wholemap on` (or the Uploads-tab toggle) opens a popup saying the
+      limit will be lifted. **Cancel** leaves it off (toggle snaps back);
+      **Turn on** lifts it, and `/argus scan` no longer skips them.
+- [ ] Blackzoned far regions are still excluded while it is on.
+- [ ] Disconnect, and the switch is off again on rejoin. Same after a full
+      restart.
+
+### 11. Live upload
+
+Use a scratch layer/token you are happy to upload to; the first cycle is 45-80
+minutes after turning it on, so leave it running.
+
+- [ ] `/argus live on` (or the toggle) opens its own popup; **Cancel** leaves it
+      off. **Turn on** starts it and the Uploads tab shows "On - next upload in
+      about N min". `/argus live` prints the same.
+- [ ] After the delay, a `[ARGUS] Live upload: sending N region(s)` line appears
+      and only regions saved since turning it on (new or changed) are sent.
+      "nothing new to send" when nothing changed.
+- [ ] Disconnect: live upload is off on rejoin. Restart: off.
+- [ ] `/argus live off` stops it and cancels a run in progress.
+
+### 12. Live upload pauses on teleports
+
+- [ ] With live on, run a teleport that prints "Teleporting to X in N seconds"
+      (e.g. `/home` on 6b6t). The Uploads tab shows "Paused - teleport
+      detected" immediately, before you arrive.
+- [ ] After arriving, and only after about 5 seconds of no further movement
+      jump, the "Teleport detected - live upload paused" popup opens (not during
+      the loading screen, not while another screen is open). **Blackzone here**
+      saves a 3x3-region blackzone around you (check the Blackzones tab).
+- [ ] A second popup asks to resume. **Stay paused** keeps it paused
+      (`/argus live resume` or the Uploads-tab button resumes). **Resume**
+      continues on a fresh random delay - nothing uploads right away.
+- [ ] A jump over 128 blocks with no countdown message (e.g. a portal, or
+      `/tp`) and a dimension change also pause and prompt.
+- [ ] Teleport while a live upload run is in flight: the run is cancelled.
+- [ ] Popup while in danger: confirm it is acceptable that it takes over input
+      until answered.
+
+### 13. Upload header
+
+- [ ] Any upload's request carries `X-Region-Modified: <epoch ms>` equal to the
+      file's modified time (check the ARGUS side or a local capture proxy).
 
 ## Known gaps going in (not yet fixed, just documented)
 
