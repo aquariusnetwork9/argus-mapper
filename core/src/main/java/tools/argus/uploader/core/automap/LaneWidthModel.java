@@ -1,30 +1,105 @@
 package tools.argus.uploader.core.automap;
 
+import java.util.Arrays;
+
 /**
- * How wide a strip of chunks Xaero ends up mapping along a flight line, by speed. Measured on 6b6t:
- * about 14 chunks across at roughly 25 blocks/s, dropping to 8-10 at the faster speeds. Lanes are
- * planned for the top speed so they still meet at the speed the flight will mostly run at.
+ * How wide a strip of chunks Xaero ends up mapping along a flight line, by speed, from a table of
+ * measured points (blocks per tick : chunks across) joined by straight lines. The default is what
+ * was measured on 6b6t: about 14 across at 25 blocks/s, 8-10 a little faster, 6 at 40, 4 at 60 and
+ * 2 at 92 (the last point is assumed to hold up to 120). Flying faster means narrower lanes and so more of them, so the quickest way
+ * over an area is not the fastest speed - with these numbers it is about 25 blocks/s.
  */
 public final class LaneWidthModel {
 
-    private static final double SLOW_BLOCKS_PER_TICK = 25.0 / 20.0;
-    private static final double SLOW_WIDTH_CHUNKS = 14;
-    private static final double FAST_BLOCKS_PER_TICK = 5.99;
-    private static final double FAST_WIDTH_CHUNKS = 8;
+    public static final String DEFAULT_TABLE = "1.25:14,1.6:9,2.0:6,3.0:4,4.6:2,5.99:2";
 
-    private LaneWidthModel() {
+    private static final double SEARCH_STEP = 0.05;
+
+    private final double[] speeds;
+    private final double[] widths;
+
+    private LaneWidthModel(double[] speeds, double[] widths) {
+        this.speeds = speeds;
+        this.widths = widths;
     }
 
-    public static double widthChunks(double blocksPerTick) {
-        if (blocksPerTick <= SLOW_BLOCKS_PER_TICK) {
-            return SLOW_WIDTH_CHUNKS;
+    public static LaneWidthModel defaults() {
+        return parse(DEFAULT_TABLE);
+    }
+
+    /** {@code "speed:width,speed:width,..."}; anything unusable falls back to {@link #DEFAULT_TABLE}. */
+    public static LaneWidthModel parse(String table) {
+        LaneWidthModel parsed = tryParse(table);
+        return parsed != null ? parsed : tryParse(DEFAULT_TABLE);
+    }
+
+    private static LaneWidthModel tryParse(String table) {
+        if (table == null) {
+            return null;
         }
-        double t = Math.min(1, (blocksPerTick - SLOW_BLOCKS_PER_TICK) / (FAST_BLOCKS_PER_TICK - SLOW_BLOCKS_PER_TICK));
-        return SLOW_WIDTH_CHUNKS + t * (FAST_WIDTH_CHUNKS - SLOW_WIDTH_CHUNKS);
+        String[] entries = table.split(",");
+        if (entries.length < 2) {
+            return null;
+        }
+        double[][] points = new double[entries.length][];
+        try {
+            for (int i = 0; i < entries.length; i++) {
+                String[] pair = entries[i].trim().split(":");
+                if (pair.length != 2) {
+                    return null;
+                }
+                double speed = Double.parseDouble(pair[0].trim());
+                double width = Double.parseDouble(pair[1].trim());
+                if (!(speed > 0) || !(width >= 1)) {
+                    return null;
+                }
+                points[i] = new double[]{speed, width};
+            }
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        Arrays.sort(points, (a, b) -> Double.compare(a[0], b[0]));
+        double[] speeds = new double[points.length];
+        double[] widths = new double[points.length];
+        for (int i = 0; i < points.length; i++) {
+            if (i > 0 && points[i][0] == points[i - 1][0]) {
+                return null;
+            }
+            speeds[i] = points[i][0];
+            widths[i] = points[i][1];
+        }
+        return new LaneWidthModel(speeds, widths);
+    }
+
+    public double widthChunks(double blocksPerTick) {
+        if (blocksPerTick <= speeds[0]) {
+            return widths[0];
+        }
+        for (int i = 1; i < speeds.length; i++) {
+            if (blocksPerTick <= speeds[i]) {
+                double t = (blocksPerTick - speeds[i - 1]) / (speeds[i] - speeds[i - 1]);
+                return widths[i - 1] + t * (widths[i] - widths[i - 1]);
+            }
+        }
+        return widths[widths.length - 1];
     }
 
     /** Chunks either side of the lane's own chunk that can be counted on at that speed. */
-    public static int halfWidthChunks(double blocksPerTick) {
-        return Math.max(2, (int) Math.floor((widthChunks(blocksPerTick) - 1) / 2));
+    public int halfWidthChunks(double blocksPerTick) {
+        return Math.max(1, (int) Math.floor((widthChunks(blocksPerTick) - 1) / 2));
+    }
+
+    /** The speed in [min, max] that covers the most new ground: speed times lane spacing. */
+    public double bestSpeed(double min, double max) {
+        double best = min;
+        double bestScore = -1;
+        for (double s = min; s <= max + 1e-9; s += SEARCH_STEP) {
+            double score = s * (widthChunks(s) - 1);
+            if (score > bestScore + 1e-9) {
+                bestScore = score;
+                best = s;
+            }
+        }
+        return best;
     }
 }

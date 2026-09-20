@@ -55,7 +55,9 @@ public final class ArgusConfig {
     public boolean reuploadChangedRegions = false;
 
     public double autoMapMaxSpeed = 5.99;
-    public double autoMapMinSpeed = 1.5;
+    public double autoMapMinSpeed = 1.0;
+    public double autoMapSpeed = 0;
+    public String autoMapWidthTable = "";
     public int autoMapCruiseY = 300;
     public int autoMapHalfWidthChunks = 0;
 
@@ -91,6 +93,8 @@ public final class ArgusConfig {
         cfg.reuploadChangedRegions = Boolean.parseBoolean(p.getProperty("reuploadChangedRegions", String.valueOf(cfg.reuploadChangedRegions)));
         cfg.autoMapMaxSpeed = parseDouble(p.getProperty("autoMapMaxSpeed"), cfg.autoMapMaxSpeed);
         cfg.autoMapMinSpeed = parseDouble(p.getProperty("autoMapMinSpeed"), cfg.autoMapMinSpeed);
+        cfg.autoMapSpeed = parseDouble(p.getProperty("autoMapSpeed"), cfg.autoMapSpeed);
+        cfg.autoMapWidthTable = p.getProperty("autoMapWidthTable", cfg.autoMapWidthTable);
         cfg.autoMapCruiseY = (int) parseLong(p.getProperty("autoMapCruiseY"), cfg.autoMapCruiseY);
         cfg.autoMapHalfWidthChunks = (int) parseLong(p.getProperty("autoMapHalfWidthChunks"), cfg.autoMapHalfWidthChunks);
         return cfg;
@@ -116,6 +120,8 @@ public final class ArgusConfig {
         p.setProperty("reuploadChangedRegions", String.valueOf(reuploadChangedRegions));
         p.setProperty("autoMapMaxSpeed", String.valueOf(autoMapMaxSpeed));
         p.setProperty("autoMapMinSpeed", String.valueOf(autoMapMinSpeed));
+        p.setProperty("autoMapSpeed", String.valueOf(autoMapSpeed));
+        p.setProperty("autoMapWidthTable", autoMapWidthTable);
         p.setProperty("autoMapCruiseY", String.valueOf(autoMapCruiseY));
         p.setProperty("autoMapHalfWidthChunks", String.valueOf(autoMapHalfWidthChunks));
         if (file.getParent() != null) {

@@ -154,16 +154,18 @@ it. Overworld and End only. Nothing about it is saved, and it always asks first.
 
 - **Path.** Back-and-forth lanes along the longer side of the box, starting at the
   corner nearest you, at `autoMapCruiseY` (default 300) and higher over tall
-  terrain. Lane spacing follows how wide a strip Xaero maps at your top speed -
-  about 14 chunks across at 25 blocks/s, 8 at 5.99 blocks/tick (measured on 6b6t) -
-  so a faster top speed means more, closer lanes. `autoMapHalfWidthChunks`
-  overrides it.
+  terrain. Xaero maps a narrower strip the faster you fly - measured on 6b6t: about
+  14 chunks across at 25 blocks/s, 6 at 40, 4 at 60, 2 at 92 - so faster means
+  more, closer lanes. From that table (`autoMapWidthTable`, editable) it picks the
+  speed that covers the most ground per second, which comes out around 25 blocks/s
+  rather than the top speed, and spaces the lanes to match. `autoMapSpeed` pins the
+  speed and `autoMapHalfWidthChunks` the spacing.
 - **Paced to the map.** Every second it checks how many chunks either side of the
   lane Xaero has actually recorded (or that are loaded, if Xaero can't be read)
   and slows Meteor's horizontal speed until the lane is fully covered, then creeps
   back up. Each server rubberband lowers its speed ceiling for the rest of the run.
-  It never goes above `autoMapMaxSpeed` (default 5.99) or below `autoMapMinSpeed`,
-  and your Meteor speed is put back afterwards.
+  It stays between `autoMapMinSpeed` and the speed it picked, and your Meteor
+  speed is put back afterwards.
 - **Gaps.** When the lanes are done it flies to any chunk Xaero still lacks and
   hovers until it is recorded, for up to two rounds, then reports what's left.
 - **Stops by itself** if you teleport, change dimension, take damage, stop

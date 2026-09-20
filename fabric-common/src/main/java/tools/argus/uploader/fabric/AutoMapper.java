@@ -156,18 +156,20 @@ public final class AutoMapper {
 
     private static AutoMapController.Settings settingsFor(MinecraftClient client, MeteorElytra elytra) {
         ArgusConfig config = ArgusUploaderClientMod.config();
-        double min = Math.max(0.5, config.autoMapMinSpeed);
+        double min = Math.max(0.3, config.autoMapMinSpeed);
         double max = Math.max(min, config.autoMapMaxSpeed);
+        LaneWidthModel model = LaneWidthModel.parse(config.autoMapWidthTable);
+        double operating = config.autoMapSpeed > 0
+                ? Math.max(min, Math.min(max, config.autoMapSpeed))
+                : model.bestSpeed(min, max);
         int viewDistance = client.options.getViewDistance().getValue();
         int half = config.autoMapHalfWidthChunks > 0
                 ? config.autoMapHalfWidthChunks
-                : Math.min(LaneWidthModel.halfWidthChunks(max), Math.max(2, viewDistance - 2));
-        double current = elytra.horizontalSpeed();
-        double start = Double.isNaN(current) ? min : Math.max(min, Math.min(max, current));
+                : Math.min(model.halfWidthChunks(operating), Math.max(1, viewDistance - 2));
         double vertical = elytra.verticalSpeed();
         double climb = Double.isNaN(vertical) ? 0.5 : Math.max(0.1, vertical * 0.5);
         int lag = FabricLoader.getInstance().isModLoaded("xaeroworldmap") ? 4 : 2;
-        return new AutoMapController.Settings(half, min, max, start, config.autoMapCruiseY, 8, climb, lag, 2);
+        return new AutoMapController.Settings(half, min, operating, operating, config.autoMapCruiseY, 8, climb, lag, 2);
     }
 
     private static void begin(MinecraftClient client, MeteorElytra elytra, ChunkBox box,
