@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The two per-session upload switches: live upload (automatic, on a random 45-80 minute delay) and
@@ -43,7 +44,9 @@ public final class AutoUploads {
 
     private static final String LIVE_BODY = "ARGUS Mapper will upload the regions you explore from now on, "
             + "automatically, about every 45-80 minutes (random), until you turn it off, disconnect or close "
-            + "the game. A changed region replaces its older copy. Blackzones still apply.\n\n"
+            + "the game. A changed region replaces its older copy. "
+            + "Regions still being written to wait until they have been untouched for 10 minutes. "
+            + "Blackzones still apply.\n\n"
             + "It pauses at once if you teleport (128+ blocks, a dimension change, or a server teleport "
             + "countdown). Once you've arrived and settled, it asks whether to blackzone the spot and "
             + "whether to resume.";
@@ -225,19 +228,23 @@ public final class AutoUploads {
         }
         try {
             UploadManifest manifest = UploadManifest.load(ArgusUploaderClientMod.manifestPath());
-            List<RegionFile> toSend = AutoUploadSelection.select(resolved.regions(), manifest, liveSinceMillis);
-            if (toSend.isEmpty()) {
-                feedback(client, "Live upload: nothing new to send.");
+            AutoUploadSelection.Selection selection = AutoUploadSelection.select(
+                    resolved.regions(), manifest, liveSinceMillis, System.currentTimeMillis());
+            if (selection.ready().isEmpty()) {
+                feedback(client, selection.held() == 0
+                        ? "Live upload: nothing new to send."
+                        : "Live upload: " + selection.held() + " region(s) are still being mapped, so they wait for the next upload.");
                 return;
             }
             BlackzoneStore blackzones = ArgusUploaderClientMod.blackzoneStore();
             ArgusUploadClient uploadClient = new ArgusUploadClient(config, blackzones);
-            UploadTracker tracker = new UploadTracker(new LiveProgressListener(client, manifest));
+            UploadTracker tracker = new UploadTracker(new LiveProgressListener(client, manifest, selection.held()));
             ArgusUploaderClientMod.setActiveUpload(tracker);
             UploadRunner runner = new UploadRunner(uploadClient, config, manifest, tracker);
             ArgusUploaderClientMod.setActiveRunner(runner);
             autoRunner = runner;
-            runner.start(toSend, "live-run-" + System.currentTimeMillis(),
+            runner.setReadyCheck(region -> AutoUploadSelection.isStillQuiet(region, System.currentTimeMillis()));
+            runner.start(selection.ready(), "live-run-" + System.currentTimeMillis(),
                     region -> !blackzones.isBlackzoned(region.dimension(), config.layer, region), true);
         } catch (IOException e) {
             feedback(client, "Live upload failed to start: " + e.getMessage());
@@ -346,15 +353,24 @@ public final class AutoUploads {
     private static final class LiveProgressListener implements UploadProgressListener {
         private final MinecraftClient client;
         private final UploadManifest manifest;
+        private final int heldAtStart;
+        private final AtomicInteger heldLater = new AtomicInteger();
 
-        LiveProgressListener(MinecraftClient client, UploadManifest manifest) {
+        LiveProgressListener(MinecraftClient client, UploadManifest manifest, int heldAtStart) {
             this.client = client;
             this.manifest = manifest;
+            this.heldAtStart = heldAtStart;
         }
 
         @Override
         public void onSummary(int totalFound, int alreadyUploaded, int tooLarge, int excludedByBlackzone, int toUpload) {
-            feedback(client, "Live upload: sending " + toUpload + " region(s).");
+            feedback(client, "Live upload: sending " + toUpload + " region(s)"
+                    + (heldAtStart > 0 ? ", holding back " + heldAtStart + " still being mapped." : "."));
+        }
+
+        @Override
+        public void onRegionDeferred(RegionFile region) {
+            heldLater.incrementAndGet();
         }
 
         @Override
@@ -373,7 +389,9 @@ public final class AutoUploads {
 
         @Override
         public void onComplete(int succeeded, int failed) {
-            feedback(client, "Live upload finished: " + succeeded + " ok, " + failed + " failed.");
+            int held = heldAtStart + heldLater.get();
+            feedback(client, "Live upload finished: " + succeeded + " ok, " + failed + " failed"
+                    + (held > 0 ? ", " + held + " held for next time." : "."));
             ArgusCommand.onUploadRunComplete(manifest, succeeded, failed, (message, isError) -> feedback(client, message));
         }
     }

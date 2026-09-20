@@ -90,10 +90,15 @@ turns them on for you.
 - **Live upload** (`/argus live on|off|resume`) - while on, the mod uploads
   regions you explore on a random delay of 45-80 minutes. Each cycle sends the
   regions Xaero has saved since you turned it on that are new or changed since
-  their last upload; a changed region replaces its older copy. The delay is a
-  compromise between streaming your path as it happens and uploading by hand, so
-  upload timing never reveals where you are right now. Blackzones, the nether
-  gate and the size limit all still apply.
+  their last upload; a changed region replaces its older copy. A region Xaero
+  is still writing to (you're mapping it right now) is held back until its file
+  has been untouched for 10 minutes and is checked again just before it is
+  sent, so half-finished regions don't go up and one region is never re-sent
+  more than once per cycle. You don't need a dedicated mapping session: any
+  region that changes while you play is picked up once you've moved on. The
+  delay is a compromise between streaming your path as it happens and uploading
+  by hand, so upload timing never reveals where you are right now. Blackzones,
+  the nether gate and the size limit all still apply.
 - **Whole-map upload** (`/argus wholemap on|off`) - lifts the
   [distance limit](#distance-limit) for the session, by hand or with live
   upload. Blackzones still apply.

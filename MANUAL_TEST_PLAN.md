@@ -306,6 +306,9 @@ minutes after turning it on, so leave it running.
 - [ ] After the delay, a `[ARGUS] Live upload: sending N region(s)` line appears
       and only regions saved since turning it on (new or changed) are sent.
       "nothing new to send" when nothing changed.
+- [ ] Keep walking through a region until the cycle fires: that region is not
+      sent ("holding back N still being mapped" / "held for next time"), and goes
+      out on a later cycle once you have left it for 10 minutes.
 - [ ] Disconnect: live upload is off on rejoin. Restart: off.
 - [ ] `/argus live off` stops it and cancels a run in progress.
 

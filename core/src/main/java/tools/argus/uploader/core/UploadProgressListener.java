@@ -23,6 +23,10 @@ public interface UploadProgressListener {
     default void onRegionStarted(RegionFile region) {
     }
 
+    /** A queued region the run dropped just before sending; it is not recorded, so a later run picks it up. */
+    default void onRegionDeferred(RegionFile region) {
+    }
+
     void onRegionUploaded(RegionFile region, int done, int total);
 
     void onRegionFailed(RegionFile region, String reason, int done, int total);

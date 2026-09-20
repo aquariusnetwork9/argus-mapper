@@ -39,6 +39,7 @@ public final class UploadRunner {
     private final AtomicInteger doneCount = new AtomicInteger(0);
     private final AtomicInteger failCount = new AtomicInteger(0);
     private volatile int totalCount = 0;
+    private volatile Predicate<RegionFile> readyCheck = region -> true;
     // The request currently in flight, if any - cancel() aborts this directly rather than only
     // ever preventing the *next* one, so a slow/hanging request can't hold cancellation hostage.
     private final AtomicReference<CompletableFuture<?>> inFlight = new AtomicReference<>();
@@ -52,6 +53,11 @@ public final class UploadRunner {
 
     public boolean isRunning() {
         return running.get();
+    }
+
+    /** Asked right before each region is sent; one it rejects is dropped from this run, unrecorded. */
+    public void setReadyCheck(Predicate<RegionFile> readyCheck) {
+        this.readyCheck = readyCheck;
     }
 
     public int getDoneCount() {
@@ -148,7 +154,15 @@ public final class UploadRunner {
         executor.submit(() -> processNext(queue, runIdPrefix, 0, 0));
     }
 
+    private void dropUnready(Deque<RegionFile> queue) {
+        while (!queue.isEmpty() && !readyCheck.test(queue.peek())) {
+            listener.onRegionDeferred(queue.poll());
+            totalCount--;
+        }
+    }
+
     private void processNext(Deque<RegionFile> queue, String runIdPrefix, int batchIndex, int inBatch) {
+        dropUnready(queue);
         if (cancelled.get() || queue.isEmpty()) {
             running.set(false);
             listener.onComplete(succeededCount(), failCount.get());
