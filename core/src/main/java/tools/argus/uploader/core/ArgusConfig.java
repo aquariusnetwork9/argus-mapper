@@ -54,6 +54,11 @@ public final class ArgusConfig {
     // re-sending regions until the player opts in.
     public boolean reuploadChangedRegions = false;
 
+    public double autoMapMaxSpeed = 5.99;
+    public double autoMapMinSpeed = 1.5;
+    public int autoMapCruiseY = 300;
+    public int autoMapHalfWidthChunks = 0;
+
     public boolean isUsable() {
         return !token.isBlank() && !layer.isBlank();
     }
@@ -84,6 +89,10 @@ public final class ArgusConfig {
         cfg.enableRichPresence = Boolean.parseBoolean(p.getProperty("enableRichPresence", String.valueOf(cfg.enableRichPresence)));
         cfg.enableAddonApi = Boolean.parseBoolean(p.getProperty("enableAddonApi", String.valueOf(cfg.enableAddonApi)));
         cfg.reuploadChangedRegions = Boolean.parseBoolean(p.getProperty("reuploadChangedRegions", String.valueOf(cfg.reuploadChangedRegions)));
+        cfg.autoMapMaxSpeed = parseDouble(p.getProperty("autoMapMaxSpeed"), cfg.autoMapMaxSpeed);
+        cfg.autoMapMinSpeed = parseDouble(p.getProperty("autoMapMinSpeed"), cfg.autoMapMinSpeed);
+        cfg.autoMapCruiseY = (int) parseLong(p.getProperty("autoMapCruiseY"), cfg.autoMapCruiseY);
+        cfg.autoMapHalfWidthChunks = (int) parseLong(p.getProperty("autoMapHalfWidthChunks"), cfg.autoMapHalfWidthChunks);
         return cfg;
     }
 
@@ -105,11 +114,24 @@ public final class ArgusConfig {
         p.setProperty("enableRichPresence", String.valueOf(enableRichPresence));
         p.setProperty("enableAddonApi", String.valueOf(enableAddonApi));
         p.setProperty("reuploadChangedRegions", String.valueOf(reuploadChangedRegions));
+        p.setProperty("autoMapMaxSpeed", String.valueOf(autoMapMaxSpeed));
+        p.setProperty("autoMapMinSpeed", String.valueOf(autoMapMinSpeed));
+        p.setProperty("autoMapCruiseY", String.valueOf(autoMapCruiseY));
+        p.setProperty("autoMapHalfWidthChunks", String.valueOf(autoMapHalfWidthChunks));
         if (file.getParent() != null) {
             Files.createDirectories(file.getParent());
         }
         try (OutputStream out = Files.newOutputStream(file)) {
             p.store(out, "ARGUS uploader config. Fill in token + layer. Never commit this file.");
+        }
+    }
+
+    private static double parseDouble(String s, double fallback) {
+        if (s == null || s.isBlank()) return fallback;
+        try {
+            return Double.parseDouble(s.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
         }
     }
 

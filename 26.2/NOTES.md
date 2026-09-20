@@ -8,6 +8,8 @@ stats, Discord reporting, on-join server auto-detect, Xaero World Map's right-cl
 outline / uploading-amber / uploaded-green), the GUI (`/argus gui`), and the pause-menu "ARGUS
 Menu" button.
 
+Not ported yet: auto-map (`AutoMapper`, the map right-click option and `/argus automap`); it is in the 1.21.x builds only for now.
+
 Also at parity with the 1.21.x builds: live and whole-map upload (`AutoUploads`; the open screen is
 read from `Minecraft.gui.screen()`), and the confirm-popup blackzone removal (GUI Blackzones tab, the
 map's "Remove ARGUS Blackzone" right-click option, and `/argus blackzone remove`) and the opt-in

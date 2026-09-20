@@ -23,6 +23,7 @@ import tools.argus.uploader.core.MapperStats;
 import tools.argus.uploader.core.UploadRunner;
 import tools.argus.uploader.core.UploadSummary;
 import tools.argus.uploader.core.UploadTracker;
+import tools.argus.uploader.core.automap.ChunkBox;
 import tools.argus.uploader.fabric.api.ArgusMapperEvents;
 import tools.argus.uploader.fabric.gui.GuiLauncher;
 
@@ -122,7 +123,41 @@ final class ArgusCommand {
                         .executes(ctx -> autoStatus(ctx.getSource()))
                         .then(literal("on").executes(ctx -> autoOn(ctx.getSource(), AutoUploads.Kind.WHOLE_MAP)))
                         .then(literal("off").executes(ctx -> autoOff(ctx.getSource(), AutoUploads.Kind.WHOLE_MAP))))
+                .then(literal("automap")
+                        .executes(ctx -> autoMapStatus(ctx.getSource()))
+                        .then(literal("status").executes(ctx -> autoMapStatus(ctx.getSource())))
+                        .then(literal("stop").executes(ctx -> autoMapStop(ctx.getSource())))
+                        .then(literal("start")
+                                .then(argument("minRegionX", IntegerArgumentType.integer())
+                                        .then(argument("minRegionZ", IntegerArgumentType.integer())
+                                                .then(argument("maxRegionX", IntegerArgumentType.integer())
+                                                        .then(argument("maxRegionZ", IntegerArgumentType.integer())
+                                                                .executes(ctx -> autoMapStart(ctx.getSource(),
+                                                                        IntegerArgumentType.getInteger(ctx, "minRegionX"),
+                                                                        IntegerArgumentType.getInteger(ctx, "minRegionZ"),
+                                                                        IntegerArgumentType.getInteger(ctx, "maxRegionX"),
+                                                                        IntegerArgumentType.getInteger(ctx, "maxRegionZ")))))))))
                 .then(literal("gui").executes(ctx -> openGui(ctx.getSource()))));
+    }
+
+    private static int autoMapStatus(FabricClientCommandSource source) {
+        info(source, "Auto-map: " + AutoMapper.status());
+        return 1;
+    }
+
+    private static int autoMapStop(FabricClientCommandSource source) {
+        if (!AutoMapper.isRunning()) {
+            error(source, "Auto-map isn't running.");
+            return 0;
+        }
+        AutoMapper.stop("stopped by /argus automap stop");
+        return 1;
+    }
+
+    private static int autoMapStart(FabricClientCommandSource source, int regionX1, int regionZ1, int regionX2, int regionZ2) {
+        AutoMapper.requestStartFromCommand(ChunkBox.ofRegions(regionX1, regionZ1, regionX2, regionZ2));
+        info(source, "Confirm in the popup to start auto-mapping.");
+        return 1;
     }
 
     private static String autoLabel(AutoUploads.Kind kind) {

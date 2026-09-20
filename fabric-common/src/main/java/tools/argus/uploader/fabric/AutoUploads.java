@@ -151,7 +151,7 @@ public final class AutoUploads {
         }
     }
 
-    private static String dimensionOf(ClientWorld world) {
+    static String dimensionOf(ClientWorld world) {
         RegistryKey<World> key = world.getRegistryKey();
         if (key == World.OVERWORLD) {
             return "overworld";

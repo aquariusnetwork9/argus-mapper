@@ -13,7 +13,9 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import tools.argus.uploader.core.BlackZone;
 import tools.argus.uploader.core.RegionBounds;
+import tools.argus.uploader.core.automap.ChunkBox;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.fabric.AutoMapper;
 import tools.argus.uploader.fabric.BlackzoneRemoval;
 import tools.argus.uploader.fabric.MapUploadTrigger;
 import xaero.map.MapProcessor;
@@ -71,6 +73,13 @@ public abstract class MixinGuiMap {
             @Override
             public void onAction(Screen screen) {
                 argusMapper$markBlackzone(selection);
+            }
+        });
+        options.add(new RightClickOption("argus_mapper.gui.world_map.auto_map", options.size(), self) {
+            @Override
+            public void onAction(Screen screen) {
+                AutoMapper.requestStart(ChunkBox.ofCorners(selection.getLeft(), selection.getTop(),
+                        selection.getRight(), selection.getBottom()), screen);
             }
         });
 

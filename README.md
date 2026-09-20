@@ -143,6 +143,33 @@ regions saved during the session.
   updating records their current time as a baseline; only later changes count.
 - "Regions contributed" still counts distinct regions.
 
+### Auto-map (experimental)
+
+Drag-select a box on Xaero's World Map, right-click and pick **Auto-Map This Area
+(ARGUS)** (or `/argus automap start <minRegionX> <minRegionZ> <maxRegionX> <maxRegionZ>`),
+confirm, and the mod flies the box for you so Xaero records it. It needs
+[Meteor Client](https://meteorclient.com)'s **Elytra Fly** switched on in
+**Vanilla** mode and you already gliding; Meteor does the flying and this steers
+it. Overworld and End only. Nothing about it is saved, and it always asks first.
+
+- **Path.** Back-and-forth lanes along the longer side of the box, starting at the
+  corner nearest you, spaced from your render distance (`autoMapHalfWidthChunks`
+  to override), at `autoMapCruiseY` (default 300) and higher over tall terrain.
+- **Paced to the map.** Every second it checks how many chunks either side of the
+  lane Xaero has actually recorded (or that are loaded, if Xaero can't be read)
+  and slows Meteor's horizontal speed until the lane is fully covered, then creeps
+  back up. Each server rubberband lowers its speed ceiling for the rest of the run.
+  It never goes above `autoMapMaxSpeed` (default 5.99) or below `autoMapMinSpeed`,
+  and your Meteor speed is put back afterwards.
+- **Gaps.** When the lanes are done it flies to any chunk Xaero still lacks and
+  hovers until it is recorded, for up to two rounds, then reports what's left.
+- **Stops by itself** if you teleport, change dimension, take damage, stop
+  gliding, run low on elytra durability, switch Elytra Fly off or disconnect.
+  `/argus automap stop` ends it, and `/argus automap` shows progress.
+
+Xaero's own recording is usually the slow part at high speed; XaeroPlus's
+**Fast Mapping** option helps.
+
 ## Privacy and safety
 
 **What gets sent.** An upload contains the region's Xaero zip, its file name and
@@ -238,6 +265,7 @@ vanilla Minecraft, and this toggle can't change that.
 | `/argus live [on\|off\|resume]` | Live upload switch; no argument shows status. `on` asks first. |
 | `/argus wholemap [on\|off]` | Whole-map switch; no argument shows status. `on` asks first. |
 | `/argus blackzone add\|list\|remove` | Manage blackzones (`remove` asks first). |
+| `/argus automap [start <minRX> <minRZ> <maxRX> <maxRZ>\|stop\|status]` | Fly a box of the map for you (experimental). `start` asks first. |
 | `/argus settoken <token>` / `/argus setlayer <layer>` | Set those from in-game. |
 | `/argus server` / `list` / `use <id>` / `add <id> <layer> <matches>` | Server auto-detect and the server list. |
 | `/argus discord sethook <url>` / `test` / `report` | Discord webhook setup and stats. |
