@@ -153,8 +153,11 @@ confirm, and the mod flies the box for you so Xaero records it. It needs
 it. Overworld and End only. Nothing about it is saved, and it always asks first.
 
 - **Path.** Back-and-forth lanes along the longer side of the box, starting at the
-  corner nearest you, spaced from your render distance (`autoMapHalfWidthChunks`
-  to override), at `autoMapCruiseY` (default 300) and higher over tall terrain.
+  corner nearest you, at `autoMapCruiseY` (default 300) and higher over tall
+  terrain. Lane spacing follows how wide a strip Xaero maps at your top speed -
+  about 14 chunks across at 25 blocks/s, 8 at 5.99 blocks/tick (measured on 6b6t) -
+  so a faster top speed means more, closer lanes. `autoMapHalfWidthChunks`
+  overrides it.
 - **Paced to the map.** Every second it checks how many chunks either side of the
   lane Xaero has actually recorded (or that are loaded, if Xaero can't be read)
   and slows Meteor's horizontal speed until the lane is fully covered, then creeps

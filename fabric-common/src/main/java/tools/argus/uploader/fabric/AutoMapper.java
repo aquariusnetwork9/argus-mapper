@@ -18,6 +18,7 @@ import tools.argus.uploader.core.ArgusConfig;
 import tools.argus.uploader.core.automap.AutoMapController;
 import tools.argus.uploader.core.automap.ChunkBox;
 import tools.argus.uploader.core.automap.LanePlanner;
+import tools.argus.uploader.core.automap.LaneWidthModel;
 import tools.argus.uploader.core.automap.MeteorElytra;
 import tools.argus.uploader.core.automap.Waypoint;
 
@@ -33,7 +34,6 @@ import java.util.OptionalInt;
  */
 public final class AutoMapper {
 
-    private static final int MAX_HALF_WIDTH_CHUNKS = 12;
     private static final int MIN_ELYTRA_DURABILITY = 20;
     private static final int XAERO_GRACE_TICKS = 160;
 
@@ -156,12 +156,12 @@ public final class AutoMapper {
 
     private static AutoMapController.Settings settingsFor(MinecraftClient client, MeteorElytra elytra) {
         ArgusConfig config = ArgusUploaderClientMod.config();
+        double min = Math.max(0.5, config.autoMapMinSpeed);
+        double max = Math.max(min, config.autoMapMaxSpeed);
         int viewDistance = client.options.getViewDistance().getValue();
         int half = config.autoMapHalfWidthChunks > 0
                 ? config.autoMapHalfWidthChunks
-                : Math.max(2, Math.min(MAX_HALF_WIDTH_CHUNKS, viewDistance - 3));
-        double min = Math.max(0.5, config.autoMapMinSpeed);
-        double max = Math.max(min, config.autoMapMaxSpeed);
+                : Math.min(LaneWidthModel.halfWidthChunks(max), Math.max(2, viewDistance - 2));
         double current = elytra.horizontalSpeed();
         double start = Double.isNaN(current) ? min : Math.max(min, Math.min(max, current));
         double vertical = elytra.verticalSpeed();
