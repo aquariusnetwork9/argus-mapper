@@ -15,6 +15,8 @@ import tools.argus.uploader.core.ServerProfile;
 import tools.argus.uploader.core.UploadManifest;
 import tools.argus.uploader.core.UploadTracker;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.core.automap.ChunkBox;
+import tools.argus.uploader.fabric.AutoMapper;
 import tools.argus.uploader.fabric.AutoUploads;
 import tools.argus.uploader.fabric.BlackzoneRemoval;
 
@@ -36,7 +38,7 @@ import java.util.List;
  */
 public final class ArgusGuiScreen extends Screen {
 
-    private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Blackzones", "Stats", "Uploads", "Road Dept.", "API"};
+    private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Blackzones", "Stats", "Uploads", "Auto-map", "Road Dept.", "API"};
     private static final int MIN_PANEL_W = 300;
     private static final int HEADER_H = 46;
     private static final int PAD = 12;
@@ -58,6 +60,11 @@ public final class ArgusGuiScreen extends Screen {
                     + (10 + ROW_H + ROW_GAP);      // slider: regions per batch
     private static final int PANEL_H_DEFAULT = HEADER_H + PAD + GENERAL_TAB_CONTENT_H + PAD + ROW_H + PAD;
 
+    // status (2 lines), area label + fields, buttons, calibration label + row, 3 rows of settings
+    private static final int AUTO_MAP_TAB_CONTENT_H = 28 + (10 + ROW_H + ROW_GAP) + (ROW_H + ROW_GAP + 4)
+            + (10 + ROW_H + ROW_GAP + 6) + 3 * (10 + ROW_H + ROW_GAP);
+    private static final int AUTO_MAP_PANEL_H = HEADER_H + PAD + AUTO_MAP_TAB_CONTENT_H + PAD + ROW_H + PAD;
+
     private static final int BG_DIM = 0x88000000;
     private static final int PANEL_BG = 0xFF12131A;
     private static final int PANEL_BORDER = 0xFF23252F;
@@ -66,7 +73,7 @@ public final class ArgusGuiScreen extends Screen {
     private static final int ACCENT = 0xFF8A6BFF;
     private static final int FIELD_BG = 0xFF1A1C25;
 
-    private enum Tab { GENERAL, TOKEN, SERVERS, BLACKZONES, STATS, UPLOADS, ROAD_DEPT, API }
+    private enum Tab { GENERAL, TOKEN, SERVERS, BLACKZONES, STATS, UPLOADS, AUTO_MAP, ROAD_DEPT, API }
 
     private Tab currentTab = Tab.GENERAL;
     private int panelX;
@@ -120,6 +127,9 @@ public final class ArgusGuiScreen extends Screen {
     }
 
     private void buildTab(Tab tab) {
+        int wanted = tab == Tab.AUTO_MAP ? AUTO_MAP_PANEL_H : PANEL_H_DEFAULT;
+        panelH = Math.min(wanted, Math.max(HEADER_H + ROW_H + PAD * 2, height - PAD * 2));
+        panelY = (height - panelH) / 2;
         labels.clear();
         tileRects.clear();
         addTabBar();
@@ -132,6 +142,7 @@ public final class ArgusGuiScreen extends Screen {
             case STATS -> buildStatsTab(contentTop);
             case UPLOADS -> buildUploadsTab(contentTop);
             case ROAD_DEPT -> buildRoadDeptTab(contentTop);
+            case AUTO_MAP -> buildAutoMapTab(contentTop);
             case API -> buildApiTab(contentTop);
         }
     }
@@ -463,6 +474,154 @@ public final class ArgusGuiScreen extends Screen {
         }
     }
 
+    // ---------------------------------------------------------------- Auto-map
+
+    private static final String[] AREA_FIELDS = {"", "", "", ""};
+    private static String calibrationSpeeds = "";
+
+    private int autoMapStatusY;
+    private String autoMapError = "";
+
+    private void buildAutoMapTab(int top) {
+        ArgusConfig cfg = ArgusUploaderClientMod.config();
+        int gap = 6;
+        int inner = panelW - PAD * 2;
+        int y = top;
+        autoMapStatusY = y;
+        y += 28;
+
+        label("Area to map, in regions (min X, min Z, max X, max Z)", panelX + PAD, y, MUTED);
+        y += 10;
+        int fieldW = (inner - gap * 3) / 4;
+        for (int i = 0; i < 4; i++) {
+            int index = i;
+            TextFieldWidget field = new TextFieldWidget(this.textRenderer, panelX + PAD + i * (fieldW + gap), y, fieldW, ROW_H, Text.empty());
+            field.setMaxLength(8);
+            field.setText(AREA_FIELDS[i]);
+            field.setChangedListener(s -> AREA_FIELDS[index] = s);
+            addDrawableChild(field);
+        }
+        y += ROW_H + ROW_GAP;
+
+        int buttonW = (inner - gap * 2) / 3;
+        addDrawableChild(new PanelButton(panelX + PAD, y, buttonW, ROW_H, Text.literal("Use my region"), this::fillAreaFromPlayer));
+        addDrawableChild(new PanelButton(panelX + PAD + buttonW + gap, y, buttonW, ROW_H, Text.literal("Start auto-map"), this::startAutoMap)
+                .colors(0xFF362A5E, 0xFFB79CFF));
+        addDrawableChild(new PanelButton(panelX + PAD + (buttonW + gap) * 2, y, buttonW, ROW_H, Text.literal("Stop"),
+                () -> AutoMapper.stop("stopped from the GUI")));
+        y += ROW_H + ROW_GAP + 4;
+
+        label("Calibration flight speeds, blocks/tick (blank = 1.0 to 5.99)", panelX + PAD, y, MUTED);
+        y += 10;
+        int runW = 110;
+        TextFieldWidget speeds = new TextFieldWidget(this.textRenderer, panelX + PAD, y, inner - runW - gap, ROW_H, Text.empty());
+        speeds.setMaxLength(80);
+        speeds.setText(calibrationSpeeds);
+        speeds.setChangedListener(s -> calibrationSpeeds = s);
+        addDrawableChild(speeds);
+        addDrawableChild(new PanelButton(panelX + panelW - PAD - runW, y, runW, ROW_H, Text.literal("Run calibration"), this::startCalibration));
+        y += ROW_H + ROW_GAP + 6;
+
+        int cellW = (inner - gap) / 2;
+        int rightX = panelX + PAD + cellW + gap;
+        doubleField(panelX + PAD, y, cellW, "Pinned speed (0 = pick the best)", cfg.autoMapSpeed, v -> cfg.autoMapSpeed = v);
+        doubleField(rightX, y, cellW, "Slowest speed", cfg.autoMapMinSpeed, v -> cfg.autoMapMinSpeed = v);
+        y += 10 + ROW_H + ROW_GAP;
+        doubleField(panelX + PAD, y, cellW, "Fastest speed", cfg.autoMapMaxSpeed, v -> cfg.autoMapMaxSpeed = v);
+        label("Cruise altitude", rightX, y, MUTED);
+        addDrawableChild(new LabeledSlider(rightX, y + 10, cellW, ROW_H, 100, 400, 5, cfg.autoMapCruiseY,
+                v -> "Y " + v, v -> cfg.autoMapCruiseY = v));
+        y += 10 + ROW_H + ROW_GAP;
+        label("Lane half-width (0 = from the table)", panelX + PAD, y, MUTED);
+        addDrawableChild(new LabeledSlider(panelX + PAD, y + 10, cellW, ROW_H, 0, 12, 1, cfg.autoMapHalfWidthChunks,
+                v -> v == 0 ? "automatic" : v + " chunks", v -> cfg.autoMapHalfWidthChunks = v));
+        label("Width table (speed:chunks, blank = built in)", rightX, y, MUTED);
+        TextFieldWidget table = new TextFieldWidget(this.textRenderer, rightX, y + 10, cellW, ROW_H, Text.empty());
+        table.setMaxLength(160);
+        table.setText(cfg.autoMapWidthTable);
+        table.setChangedListener(s -> cfg.autoMapWidthTable = s);
+        addDrawableChild(table);
+
+        int saveY = panelY + panelH - PAD - ROW_H;
+        addDrawableChild(saveButton(panelX + PAD, saveY, cfg));
+        label("Or right-click a box on Xaero's map.", panelX + PAD + 100, saveY + (ROW_H - 8) / 2, MUTED);
+    }
+
+    private void doubleField(int x, int y, int w, String text, double initial, java.util.function.DoubleConsumer onChange) {
+        label(text, x, y, MUTED);
+        TextFieldWidget field = new TextFieldWidget(this.textRenderer, x, y + 10, w, ROW_H, Text.empty());
+        field.setMaxLength(8);
+        field.setText(initial == Math.rint(initial) ? Integer.toString((int) initial) : Double.toString(initial));
+        field.setChangedListener(s -> {
+            try {
+                double value = Double.parseDouble(s.trim());
+                if (value >= 0) {
+                    onChange.accept(value);
+                }
+            } catch (NumberFormatException ignored) {
+                // keeps the last valid value until the text parses
+            }
+        });
+        addDrawableChild(field);
+    }
+
+    private void fillAreaFromPlayer() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.player == null) {
+            return;
+        }
+        String regionX = Integer.toString(client.player.getBlockX() >> 9);
+        String regionZ = Integer.toString(client.player.getBlockZ() >> 9);
+        AREA_FIELDS[0] = regionX;
+        AREA_FIELDS[1] = regionZ;
+        AREA_FIELDS[2] = regionX;
+        AREA_FIELDS[3] = regionZ;
+        autoMapError = "";
+        switchTab(Tab.AUTO_MAP);
+    }
+
+    private void startAutoMap() {
+        try {
+            int[] r = new int[4];
+            for (int i = 0; i < 4; i++) {
+                r[i] = Integer.parseInt(AREA_FIELDS[i].trim());
+            }
+            var problem = AutoMapper.readinessProblem();
+            if (problem.isPresent()) {
+                autoMapError = problem.get();
+                return;
+            }
+            autoMapError = "";
+            AutoMapper.requestStartFromCommand(ChunkBox.ofRegions(r[0], r[1], r[2], r[3]));
+        } catch (NumberFormatException e) {
+            autoMapError = "Enter four whole numbers for the area.";
+        }
+    }
+
+    private void startCalibration() {
+        var problem = AutoMapper.readinessProblem();
+        if (problem.isPresent()) {
+            autoMapError = problem.get();
+            return;
+        }
+        autoMapError = "";
+        AutoMapper.requestCalibrationFromCommand(calibrationSpeeds);
+    }
+
+    /** Drawn every frame, like the Uploads progress, so the status follows a run in the background. */
+    private void renderAutoMap(DrawContext context) {
+        int y = autoMapStatusY;
+        context.drawTextWithShadow(this.textRenderer, "Auto-map: " + AutoMapper.status(), panelX + PAD, y, TITLE_COLOR);
+        var problem = AutoMapper.readinessProblem();
+        if (!autoMapError.isEmpty()) {
+            context.drawTextWithShadow(this.textRenderer, autoMapError, panelX + PAD, y + 12, 0xFFFF8080);
+        } else if (problem.isPresent()) {
+            context.drawTextWithShadow(this.textRenderer, "Not ready: " + problem.get(), panelX + PAD, y + 12, 0xFFFFB86B);
+        } else {
+            context.drawTextWithShadow(this.textRenderer, "Ready: Elytra Fly is on and you're gliding.", panelX + PAD, y + 12, ACCENT);
+        }
+    }
+
     // ---------------------------------------------------------------- Road Department (ARD)
 
     private void buildRoadDeptTab(int top) {
@@ -562,6 +721,9 @@ public final class ArgusGuiScreen extends Screen {
 
         if (currentTab == Tab.UPLOADS) {
             renderUploads(context);
+        }
+        if (currentTab == Tab.AUTO_MAP) {
+            renderAutoMap(context);
         }
 
         super.render(context, mouseX, mouseY, delta);

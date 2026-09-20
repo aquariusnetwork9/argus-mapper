@@ -134,6 +134,11 @@ public final class AutoMapper {
                 Text.literal("Start"), Text.literal("Cancel")));
     }
 
+    /** Why a flight couldn't start right now, if it couldn't - for the GUI's live status. */
+    public static Optional<String> readinessProblem() {
+        return checkCanStart(MinecraftClient.getInstance());
+    }
+
     private static Optional<String> checkCanStart(MinecraftClient client) {
         ClientPlayerEntity player = client.player;
         if (player == null || client.world == null) {

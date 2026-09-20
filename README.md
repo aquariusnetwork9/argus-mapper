@@ -55,9 +55,9 @@ Works on **Minecraft 1.21.11 and 26.2** - the two versions 6b6t lets you join
 
 Open it with `/argus gui`, the **ARGUS Menu** button on the pause screen, or a
 key you bind in Controls (unbound by default). The tabs are **General, Token,
-Servers, Blackzones, Stats, Uploads, Road Dept.** and **API**; everything in
-them does exactly what the matching chat command does. (26.2 has no Road Dept.
-tab because ARD isn't ported there yet.)
+Servers, Blackzones, Stats, Uploads, Auto-map, Road Dept.** and **API**;
+everything in them does exactly what the matching chat command does. (26.2 has no
+Road Dept. tab because ARD isn't ported there yet, and no Auto-map tab yet.)
 
 The **Uploads** tab shows the current run live - progress bar, queued / done /
 failed counts, and how many regions a blackzone kept out - and holds the
@@ -146,8 +146,11 @@ regions saved during the session.
 ### Auto-map (experimental)
 
 Drag-select a box on Xaero's World Map, right-click and pick **Auto-Map This Area
-(ARGUS)** (or `/argus automap start <minRegionX> <minRegionZ> <maxRegionX> <maxRegionZ>`),
-confirm, and the mod flies the box for you so Xaero records it. It needs
+(ARGUS)** (or use the GUI's **Auto-map** tab, or `/argus automap start <minRegionX>
+<minRegionZ> <maxRegionX> <maxRegionZ>`), confirm, and the mod flies the box for you
+so Xaero records it. The **Auto-map** tab has the area fields (with **Use my
+region**), Start and Stop, the calibration flight, live status - including what's
+missing if it can't start - and the speed, altitude and lane-width settings. It needs
 [Meteor Client](https://meteorclient.com)'s **Elytra Fly** switched on in
 **Vanilla** mode and you already gliding; Meteor does the flying and this steers
 it. Overworld and End only. Nothing about it is saved, and it always asks first.

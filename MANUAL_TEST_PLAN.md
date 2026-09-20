@@ -416,3 +416,19 @@ files already exist on that line.
 - [ ] `/argus automap calibrate 1.25 2 3` runs just those speeds.
 - [ ] Stopping early (`/argus automap stop`, damage, portal) still writes a report of
       the stages that finished.
+
+### 16. Auto-map tab in the GUI
+
+- [ ] `/argus gui` has an **Auto-map** tab between Uploads and Road Dept.; the tab bar
+      still fits, and the panel is taller on that tab only.
+- [ ] The two status lines update live: "Off" and "Not ready: Turn on Elytra Fly
+      first." before you fly, "Ready: ..." once Elytra Fly is on and you're gliding,
+      and the stage or percentage while a run is going.
+- [ ] **Use my region** fills all four area fields with your region. Start with bad
+      or empty fields shows "Enter four whole numbers..." in red; with good ones it
+      opens the same confirm popup as the map option (Cancel returns to the GUI).
+- [ ] **Stop** ends a run. **Run calibration** with the speeds field blank runs the
+      defaults; with `1.25 2 3` runs those.
+- [ ] Changing the speed fields, altitude and lane-width sliders and the width table,
+      then **Save**, keeps them after a restart (`config/argus-mapper.properties`);
+      an unparseable speed leaves the old value in place.
