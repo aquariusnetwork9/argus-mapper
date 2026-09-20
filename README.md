@@ -173,7 +173,18 @@ it. Overworld and End only. Nothing about it is saved, and it always asks first.
   `/argus automap stop` ends it, and `/argus automap` shows progress.
 
 Xaero's own recording is usually the slow part at high speed; XaeroPlus's
-**Fast Mapping** option helps.
+**Fast Mapping** option may help.
+
+**Calibration flight.** `/argus automap calibrate [speeds]` flies one straight line
+at a series of speeds (blocks per tick; default 1.0 up to 5.99, about 4.5 minutes)
+and writes what it saw to `argus-mapper-calibration/<time>-fastmapping-<on|off>/`
+in the game folder: `summary.txt` (a table of how many chunks across were loaded and
+how many Xaero mapped at each speed, plus a suggested `autoMapWidthTable`),
+`rows.csv` (how often each row either side of the line was loaded or mapped) and
+`samples.csv` (a reading every quarter second: speed, loaded and mapped widths,
+fps, ping, the renderer's own chunk count). It heads whichever way has the fewest
+existing map files, needs the same setup as auto-map, and stops the same ways.
+Run it once with XaeroPlus Fast Mapping off and once on to compare.
 
 ## Privacy and safety
 
@@ -270,7 +281,7 @@ vanilla Minecraft, and this toggle can't change that.
 | `/argus live [on\|off\|resume]` | Live upload switch; no argument shows status. `on` asks first. |
 | `/argus wholemap [on\|off]` | Whole-map switch; no argument shows status. `on` asks first. |
 | `/argus blackzone add\|list\|remove` | Manage blackzones (`remove` asks first). |
-| `/argus automap [start <minRX> <minRZ> <maxRX> <maxRZ>\|stop\|status]` | Fly a box of the map for you (experimental). `start` asks first. |
+| `/argus automap [start <minRX> <minRZ> <maxRX> <maxRZ>\|calibrate [speeds]\|stop\|status]` | Fly a box of the map for you, or a speed test flight (experimental). `start` and `calibrate` ask first. |
 | `/argus settoken <token>` / `/argus setlayer <layer>` | Set those from in-game. |
 | `/argus server` / `list` / `use <id>` / `add <id> <layer> <matches>` | Server auto-detect and the server list. |
 | `/argus discord sethook <url>` / `test` / `report` | Discord webhook setup and stats. |

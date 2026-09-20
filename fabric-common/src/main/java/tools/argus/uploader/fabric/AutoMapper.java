@@ -8,6 +8,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.ConfirmScreen;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.client.network.PlayerListEntry;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.item.ItemStack;
@@ -16,12 +17,23 @@ import net.minecraft.text.Text;
 import net.minecraft.world.Heightmap;
 import tools.argus.uploader.core.ArgusConfig;
 import tools.argus.uploader.core.automap.AutoMapController;
+import tools.argus.uploader.core.automap.CalibrationController;
+import tools.argus.uploader.core.automap.CalibrationReport;
+import tools.argus.uploader.core.automap.CalibrationSchedule;
 import tools.argus.uploader.core.automap.ChunkBox;
+import tools.argus.uploader.core.automap.CorridorOverlap;
+import tools.argus.uploader.core.automap.FlightPlan;
 import tools.argus.uploader.core.automap.LanePlanner;
 import tools.argus.uploader.core.automap.LaneWidthModel;
 import tools.argus.uploader.core.automap.MeteorElytra;
 import tools.argus.uploader.core.automap.Waypoint;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -38,7 +50,11 @@ public final class AutoMapper {
     private static final int XAERO_GRACE_TICKS = 160;
 
     private static volatile ChunkBox pendingBox;
-    private static AutoMapController controller;
+    private static volatile String pendingCalibration;
+    private static boolean calibrating;
+    private static List<String> calibrationEnvironment = List.of();
+    private static String calibrationFastMapping = "unknown";
+    private static FlightPlan plan;
     private static MeteorElytra meteor;
     private static XaeroCoverage xaero;
     private static boolean xaeroUnreliable;
@@ -55,23 +71,23 @@ public final class AutoMapper {
     public static void register() {
         ClientTickEvents.START_CLIENT_TICK.register(AutoMapper::onTick);
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
-            if (controller != null) {
+            if (plan != null) {
                 end(client, "you disconnected");
             }
         });
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
-            if (controller != null) {
+            if (plan != null) {
                 end(client, "the game is closing");
             }
         });
     }
 
     public static boolean isRunning() {
-        return controller != null;
+        return plan != null;
     }
 
     public static String status() {
-        AutoMapController current = controller;
+        FlightPlan current = plan;
         return current == null ? "Off" : current.statusLine();
     }
 
@@ -81,7 +97,7 @@ public final class AutoMapper {
     }
 
     public static void stop(String reason) {
-        if (controller != null) {
+        if (plan != null) {
             end(MinecraftClient.getInstance(), reason);
         }
     }
@@ -123,7 +139,7 @@ public final class AutoMapper {
         if (player == null || client.world == null) {
             return Optional.of("Join a world first.");
         }
-        if (controller != null) {
+        if (plan != null) {
             return Optional.of("Auto-map is already running. /argus automap stop ends it.");
         }
         String dimension = AutoUploads.dimensionOf(client.world);
@@ -189,7 +205,8 @@ public final class AutoMapper {
         lastHealth = player.getHealth();
         startedAtMillis = System.currentTimeMillis();
         ticksRunning = 0;
-        controller = new AutoMapController(box, settings, dimension, player.getX(), player.getZ(),
+        calibrating = false;
+        plan = new AutoMapController(box, settings, dimension, player.getX(), player.getZ(),
                 AutoMapper::covered, AutoMapper::topY);
         feedback(client, "Auto-map started" + (xaero == null
                 ? " (Xaero's World Map couldn't be read, so it goes by loaded chunks)." : ".")
@@ -202,7 +219,12 @@ public final class AutoMapper {
             pendingBox = null;
             requestStart(box, client.currentScreen);
         }
-        AutoMapController current = controller;
+        String speeds = pendingCalibration;
+        if (speeds != null) {
+            pendingCalibration = null;
+            requestCalibration(speeds);
+        }
+        FlightPlan current = plan;
         if (current == null) {
             return;
         }
@@ -232,7 +254,7 @@ public final class AutoMapper {
         }
     }
 
-    private static void checkSafety(AutoMapController current, ClientPlayerEntity player) {
+    private static void checkSafety(FlightPlan current, ClientPlayerEntity player) {
         if (player.getHealth() < lastHealth - 0.01f) {
             current.abort("you took damage");
         }
@@ -248,7 +270,7 @@ public final class AutoMapper {
             return;
         }
         xaero.refreshLayer();
-        if (!xaeroSeenWritten) {
+        if (!calibrating && !xaeroSeenWritten) {
             xaeroSeenWritten = xaero.written(player.getBlockX() >> 4, player.getBlockZ() >> 4);
             if (!xaeroSeenWritten && ticksRunning > XAERO_GRACE_TICKS) {
                 xaeroUnreliable = true;
@@ -278,8 +300,8 @@ public final class AutoMapper {
     }
 
     private static void end(MinecraftClient client, String reason) {
-        AutoMapController finished = controller;
-        controller = null;
+        FlightPlan finished = plan;
+        plan = null;
         client.options.forwardKey.setPressed(false);
         client.options.jumpKey.setPressed(false);
         client.options.sneakKey.setPressed(false);
@@ -293,12 +315,204 @@ public final class AutoMapper {
             finished.abort(reason);
         }
         long minutes = Math.max(1, (System.currentTimeMillis() - startedAtMillis) / 60_000L);
-        String result = String.format("%.1f%% of the area mapped, %d chunk(s) missing, %d min, %d rubberband(s).",
-                finished.progress() * 100, finished.missingChunks(), minutes, finished.rubberbands());
+        String label = calibrating ? "Calibration" : "Auto-map";
+        String result = finished.resultLine() + " " + minutes + " min.";
         if (finished.state() == AutoMapController.State.ABORTED) {
-            feedback(client, "Auto-map stopped: " + finished.abortReason() + ". " + result);
+            feedback(client, label + " stopped: " + finished.abortReason() + ". " + result);
         } else {
-            feedback(client, "Auto-map finished. " + result);
+            feedback(client, label + " finished. " + result);
+        }
+        if (finished instanceof CalibrationController run) {
+            writeCalibration(client, run);
+        }
+        calibrating = false;
+    }
+
+    // ------------------------------------------------------------ calibration
+
+    public static void requestCalibrationFromCommand(String speeds) {
+        pendingCalibration = speeds == null ? "" : speeds;
+    }
+
+    private static void requestCalibration(String speedsCsv) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        Optional<String> problem = checkCanStart(client);
+        if (problem.isPresent()) {
+            feedback(client, problem.get());
+            return;
+        }
+        MeteorElytra elytra = MeteorElytra.find().orElseThrow();
+        ClientPlayerEntity player = client.player;
+        String dimension = AutoUploads.dimensionOf(client.world);
+        CalibrationSchedule schedule = CalibrationSchedule.parse(speedsCsv);
+        double lengthBlocks = 0;
+        StringBuilder speeds = new StringBuilder();
+        for (int stage = 0; stage < schedule.stages(); stage++) {
+            lengthBlocks += schedule.speed(stage) * 20.0 * schedule.stageMillis() / 1000.0;
+            speeds.append(stage == 0 ? "" : ", ").append(schedule.speed(stage));
+        }
+        List<int[]> mapped = mappedRegions(dimension);
+        int preferred = CalibrationController.cardinalFromYaw(player.getYaw());
+        int cardinal = mapped == null ? preferred
+                : CorridorOverlap.leastMapped(mapped, player.getX(), player.getZ(), preferred, lengthBlocks);
+        int overlap = mapped == null ? -1
+                : CorridorOverlap.count(mapped, player.getX(), player.getZ(), cardinal, lengthBlocks);
+        String overlapText = overlap < 0 ? "Couldn't check for existing map files on that line."
+                : overlap == 0 ? "No map files exist on that line."
+                : overlap + " region file(s) on that line already exist, which flatters the results.";
+
+        String body = "Flies straight " + CalibrationController.cardinalName(cardinal) + " for about "
+                + Math.max(1, Math.round(schedule.totalMillis() / 60_000.0)) + " min (roughly "
+                + Math.round(lengthBlocks) + " blocks) at " + schedule.stages() + " speeds (" + speeds
+                + " blocks/tick), recording how many chunks load and how many Xaero maps at each. "
+                + overlapText + "\n\nIt writes a report to argus-mapper-calibration in the game folder. "
+                + "Same stops as auto-map (teleport, dimension change, damage, not gliding, Elytra Fly off); "
+                + "/argus automap stop ends it.";
+        final int chosen = cardinal;
+        final int overlapFinal = overlap;
+        client.setScreen(new ConfirmScreen(
+                confirmed -> {
+                    client.setScreen(null);
+                    if (confirmed) {
+                        beginCalibration(client, elytra, schedule, chosen, dimension, overlapFinal);
+                    }
+                },
+                Text.literal("Run a calibration flight?"), Text.literal(body),
+                Text.literal("Start"), Text.literal("Cancel")));
+    }
+
+    private static void beginCalibration(MinecraftClient client, MeteorElytra elytra, CalibrationSchedule schedule,
+                                         int cardinal, String dimension, int overlap) {
+        Optional<String> problem = checkCanStart(client);
+        if (problem.isPresent()) {
+            feedback(client, "Calibration didn't start: " + problem.get());
+            return;
+        }
+        ClientPlayerEntity player = client.player;
+        ArgusConfig config = ArgusUploaderClientMod.config();
+        meteor = elytra;
+        originalHorizontalSpeed = elytra.horizontalSpeed();
+        lastSpeedSet = originalHorizontalSpeed;
+        xaero = FabricLoader.getInstance().isModLoaded("xaeroworldmap") ? XaeroCoverage.open().orElse(null) : null;
+        xaeroUnreliable = false;
+        lastHealth = player.getHealth();
+        startedAtMillis = System.currentTimeMillis();
+        ticksRunning = 0;
+        calibrating = true;
+        double vertical = elytra.verticalSpeed();
+        double climb = Double.isNaN(vertical) ? 0.5 : Math.max(0.1, vertical * 0.5);
+        calibrationEnvironment = environmentLines(client, elytra, overlap);
+        plan = new CalibrationController(schedule, player.getX(), player.getZ(), cardinal, dimension,
+                client.options.getViewDistance().getValue(), AutoMapper::loaded, AutoMapper::writtenRaw,
+                AutoMapper::topY, config.autoMapCruiseY, 8, climb, AutoMapper::extras);
+        feedback(client, "Calibration started, flying " + CalibrationController.cardinalName(cardinal)
+                + (xaero == null ? " (Xaero's World Map couldn't be read, so only loaded chunks are recorded)." : ".")
+                + " /argus automap stop cancels it.");
+    }
+
+    private static List<int[]> mappedRegions(String dimension) {
+        try {
+            RegionResolver.Resolved resolved = RegionResolver.resolve(dimension);
+            if (resolved.isError()) {
+                return null;
+            }
+            List<int[]> regions = new ArrayList<>();
+            resolved.regions().forEach(region -> regions.add(new int[]{region.regionX(), region.regionZ()}));
+            return regions;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static boolean loaded(int chunkX, int chunkZ) {
+        ClientWorld world = MinecraftClient.getInstance().world;
+        return world != null && world.isChunkLoaded(chunkX, chunkZ);
+    }
+
+    private static boolean writtenRaw(int chunkX, int chunkZ) {
+        return xaero != null && xaero.written(chunkX, chunkZ);
+    }
+
+    private static CalibrationController.Extras extras() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        double ping = -1;
+        try {
+            PlayerListEntry entry = client.getNetworkHandler().getPlayerListEntry(client.player.getUuid());
+            if (entry != null) {
+                ping = entry.getLatency();
+            }
+        } catch (RuntimeException ignored) {
+            // Ping is only context for the log.
+        }
+        String render = "";
+        try {
+            render = client.worldRenderer.getChunksDebugString();
+        } catch (RuntimeException | LinkageError ignored) {
+            // The renderer's own count is only context for the log.
+        }
+        return new CalibrationController.Extras(client.getCurrentFps(), ping, render == null ? "" : render);
+    }
+
+    private static List<String> environmentLines(MinecraftClient client, MeteorElytra elytra, int overlap) {
+        FabricLoader loader = FabricLoader.getInstance();
+        Path config = loader.getConfigDir();
+        String fastMapping = configValue(config.resolve("xaeroplus.txt"), "[XP] Fast Mapping");
+        calibrationFastMapping = "true".equalsIgnoreCase(fastMapping) ? "on" : "false".equalsIgnoreCase(fastMapping) ? "off" : "unknown";
+        List<String> lines = new ArrayList<>();
+        lines.add("started: " + LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+        lines.add("minecraft: " + version(loader, "minecraft") + ", argus-mapper: " + version(loader, "argus-mapper"));
+        lines.add("client view distance: " + client.options.getViewDistance().getValue()
+                + ", simulation distance: " + client.options.getSimulationDistance().getValue()
+                + ", max fps: " + client.options.getMaxFps().getValue());
+        lines.add("xaero world map: " + version(loader, "xaeroworldmap") + ", tiles readable: " + (xaero != null)
+                + ", map writing distance: " + configValue(config.resolve("xaero/world-map/profiles/default.cfg"), "map_writing_distance"));
+        lines.add("xaeroplus: " + version(loader, "xaeroplus") + ", fast mapping: " + fastMapping
+                + ", delay: " + configValue(config.resolve("xaeroplus.txt"), "[XP] Fast Mapping Delay")
+                + ", rate limit: " + configValue(config.resolve("xaeroplus.txt"), "[XP] Fast Mapping Rate Limit")
+                + " (as saved in config/xaeroplus.txt)");
+        lines.add("sodium: " + version(loader, "sodium") + ", voxy: " + version(loader, "voxy"));
+        lines.add("meteor elytra fly (before): horizontal " + originalHorizontalSpeed + ", vertical " + elytra.verticalSpeed());
+        lines.add("existing region files on the line: " + (overlap < 0 ? "unknown" : overlap));
+        return lines;
+    }
+
+    private static String version(FabricLoader loader, String modId) {
+        return loader.getModContainer(modId).map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("not installed");
+    }
+
+    private static String configValue(Path file, String key) {
+        try {
+            for (String line : Files.readAllLines(file)) {
+                String trimmed = line.trim();
+                if (!trimmed.startsWith(key)) {
+                    continue;
+                }
+                String rest = trimmed.substring(key.length()).stripLeading();
+                if (rest.startsWith(":") || rest.startsWith("=")) {
+                    return rest.substring(1).trim();
+                }
+            }
+        } catch (IOException | RuntimeException ignored) {
+            // Not there or unreadable: reported as unknown.
+        }
+        return "unknown";
+    }
+
+    private static void writeCalibration(MinecraftClient client, CalibrationController run) {
+        Path directory = FabricLoader.getInstance().getGameDir().resolve("argus-mapper-calibration")
+                .resolve(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+                        + "-fastmapping-" + calibrationFastMapping);
+        String summary = CalibrationReport.summary(run, calibrationEnvironment);
+        try {
+            Files.createDirectories(directory);
+            Files.writeString(directory.resolve("summary.txt"), summary);
+            Files.writeString(directory.resolve("samples.csv"), run.samplesCsv());
+            Files.writeString(directory.resolve("rows.csv"), CalibrationReport.rowsCsv(run));
+            feedback(client, "Calibration report saved to " + directory);
+            summary.lines().filter(line -> line.startsWith("autoMapWidthTable=") || line.startsWith("Best speed"))
+                    .forEach(line -> feedback(client, line));
+        } catch (IOException e) {
+            feedback(client, "Couldn't save the calibration report: " + e.getMessage());
         }
     }
 

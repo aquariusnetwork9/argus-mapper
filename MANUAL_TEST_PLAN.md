@@ -395,3 +395,24 @@ box first (one or two regions) somewhere quiet.
       hitting it.
 - [ ] With Xaero's world map not writing (or without Xaero) it says so and falls back
       to loaded chunks.
+
+### 15. Auto-map calibration flight
+
+Same setup as scenario 14 (Meteor Elytra Fly on in Vanilla mode, gliding). Fly over
+ground you haven't mapped; the popup names the direction it chose and says if map
+files already exist on that line.
+
+- [ ] `/argus automap calibrate` opens a popup with the heading, length and speeds.
+      **Start** flies straight, stepping through the speeds (chat shows nothing
+      until the end; `/argus automap` shows the stage).
+- [ ] At the end the chat names a folder under `argus-mapper-calibration/` and prints
+      the suggested `autoMapWidthTable` and best speed. The folder holds
+      `summary.txt`, `rows.csv` and `samples.csv`.
+- [ ] `summary.txt` lists the environment (view distance, Xaero and XaeroPlus versions,
+      Fast Mapping on/off) and, per speed, chunks across loaded / mapped@6 / mapped@20.
+      Compare the widths with what the Xaero map shows along that line.
+- [ ] Repeat with XaeroPlus Fast Mapping turned on (the folder name says which): it
+      should show wider mapped strips or less lag between loaded and mapped.
+- [ ] `/argus automap calibrate 1.25 2 3` runs just those speeds.
+- [ ] Stopping early (`/argus automap stop`, damage, portal) still writes a report of
+      the stages that finished.

@@ -11,7 +11,7 @@ import java.util.OptionalInt;
  * and the caller applies that once a tick. Positions, chunk state and time all come in through
  * {@link Frame} and the probes, so it is unit-testable without a client.
  */
-public final class AutoMapController {
+public final class AutoMapController implements FlightPlan {
 
     public record Settings(int halfWidthChunks, double minSpeed, double maxSpeed, double startSpeed, int cruiseY,
                            int clearance, double climbPerTick, int lagChunks, int maxRepairRounds) {
@@ -36,14 +36,12 @@ public final class AutoMapController {
     private static final int NOT_GLIDING_TICKS = 30;
     private static final int OBSERVE_EVERY_TICKS = 2;
     private static final int MIN_LANE_BLOCKS_BEFORE_MEASURING = 160;
-    private static final int LOOK_AHEAD_BLOCKS = 160;
     private static final long HOVER_MILLIS = 4_000L;
 
     private final ChunkBox box;
     private final Settings settings;
     private final String dimension;
     private final ChunkProbe covered;
-    private final Terrain terrain;
     private final CoverageTracker tracker;
     private final SpeedGovernor governor;
     private final RubberbandDetector rubberband = new RubberbandDetector();
@@ -68,7 +66,7 @@ public final class AutoMapController {
     private int lastLaneIndex = -1;
     private double lastYaw;
     private boolean lastForward;
-    private Vertical vertical = Vertical.HOLD;
+    private final AltitudeHold altitude;
     private int rubberbands;
 
     public AutoMapController(ChunkBox box, Settings settings, String dimension, double startX, double startZ,
@@ -77,16 +75,18 @@ public final class AutoMapController {
         this.settings = settings;
         this.dimension = dimension;
         this.covered = covered;
-        this.terrain = terrain;
         this.tracker = new CoverageTracker(box);
         this.governor = new SpeedGovernor(settings.minSpeed(), settings.maxSpeed(), settings.startSpeed());
         this.lanes = new PathFollower(LanePlanner.plan(box, startX, startZ, settings.halfWidthChunks()));
+        this.altitude = new AltitudeHold(settings.cruiseY(), settings.clearance(), settings.climbPerTick(), terrain);
     }
 
+    @Override
     public State state() {
         return state;
     }
 
+    @Override
     public String abortReason() {
         return abortReason;
     }
@@ -107,11 +107,19 @@ public final class AutoMapController {
         return tracker.fraction();
     }
 
+    @Override
+    public String resultLine() {
+        return String.format("%.1f%% of the area mapped, %d chunk(s) missing, %d rubberband(s).",
+                tracker.fraction() * 100, tracker.missingCount(), rubberbands);
+    }
+
+    @Override
     public String statusLine() {
         return String.format("%s %.0f%% mapped, %.2f blocks/tick, %d rubberband(s)",
                 repairing ? "Filling gaps:" : "Flying lanes:", tracker.fraction() * 100, governor.speed(), rubberbands);
     }
 
+    @Override
     public void abort(String reason) {
         if (state == State.RUNNING) {
             state = State.ABORTED;
@@ -119,7 +127,7 @@ public final class AutoMapController {
         }
     }
 
-    /** The command for this tick, or null once the run has finished or been aborted. */
+    @Override
     public Command tick(Frame frame) {
         if (state != State.RUNNING) {
             return null;
@@ -201,11 +209,13 @@ public final class AutoMapController {
             }
         }
 
-        double targetY = targetAltitude(frame, yaw);
-        updateVertical(frame.y(), targetY, blocksPerTick);
+        AltitudeHold.Result climb = altitude.update(frame.x(), frame.y(), frame.z(), yaw, blocksPerTick);
+        if (climb.speedLimit() < Double.POSITIVE_INFINITY) {
+            governor.limitTo(climb.speedLimit());
+        }
         lastYaw = yaw;
         lastForward = forward;
-        return new Command(yaw, forward, vertical, governor.speed());
+        return new Command(yaw, forward, climb.vertical(), governor.speed());
     }
 
     private void trackLane(Frame frame) {
@@ -239,35 +249,5 @@ public final class AutoMapController {
         stops.clear();
         stops.addAll(RepairPlanner.plan(missing, frame.x(), frame.z()));
         stop = null;
-    }
-
-    private double targetAltitude(Frame frame, double yaw) {
-        double radians = Math.toRadians(yaw);
-        double headingX = -Math.sin(radians);
-        double headingZ = Math.cos(radians);
-        int highest = Integer.MIN_VALUE;
-        for (int d = 0; d <= LOOK_AHEAD_BLOCKS; d += 16) {
-            OptionalInt top = terrain.topY((int) Math.floor(frame.x() + headingX * d),
-                    (int) Math.floor(frame.z() + headingZ * d));
-            if (top.isPresent()) {
-                highest = Math.max(highest, top.getAsInt());
-            }
-        }
-        return highest == Integer.MIN_VALUE ? settings.cruiseY() : Math.max(settings.cruiseY(), highest + settings.clearance());
-    }
-
-    private void updateVertical(double y, double targetY, double blocksPerTick) {
-        double dy = targetY - y;
-        vertical = switch (vertical) {
-            case HOLD -> dy > 2 ? Vertical.UP : dy < -4 ? Vertical.DOWN : Vertical.HOLD;
-            case UP -> dy < 0.5 ? Vertical.HOLD : Vertical.UP;
-            case DOWN -> dy > -1 ? Vertical.HOLD : Vertical.DOWN;
-        };
-        if (dy > 2) {
-            double ticksToObstacle = LOOK_AHEAD_BLOCKS / Math.max(blocksPerTick, 0.1);
-            if (dy / settings.climbPerTick() > ticksToObstacle) {
-                governor.limitTo(LOOK_AHEAD_BLOCKS * settings.climbPerTick() / dy);
-            }
-        }
     }
 }

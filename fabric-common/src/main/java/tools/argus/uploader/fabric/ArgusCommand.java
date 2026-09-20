@@ -127,6 +127,11 @@ final class ArgusCommand {
                         .executes(ctx -> autoMapStatus(ctx.getSource()))
                         .then(literal("status").executes(ctx -> autoMapStatus(ctx.getSource())))
                         .then(literal("stop").executes(ctx -> autoMapStop(ctx.getSource())))
+                        .then(literal("calibrate")
+                                .executes(ctx -> autoMapCalibrate(ctx.getSource(), ""))
+                                .then(argument("speeds", StringArgumentType.greedyString())
+                                        .executes(ctx -> autoMapCalibrate(ctx.getSource(),
+                                                StringArgumentType.getString(ctx, "speeds")))))
                         .then(literal("start")
                                 .then(argument("minRegionX", IntegerArgumentType.integer())
                                         .then(argument("minRegionZ", IntegerArgumentType.integer())
@@ -151,6 +156,12 @@ final class ArgusCommand {
             return 0;
         }
         AutoMapper.stop("stopped by /argus automap stop");
+        return 1;
+    }
+
+    private static int autoMapCalibrate(FabricClientCommandSource source, String speeds) {
+        AutoMapper.requestCalibrationFromCommand(speeds);
+        info(source, "Confirm in the popup to start the calibration flight.");
         return 1;
     }
 
