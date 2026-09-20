@@ -14,9 +14,10 @@ Works on **Minecraft 1.21.11 and 26.2** - the two versions 6b6t lets you join
 - **Live upload (opt-in).** Switch it on and the mod uploads the regions you
   explore automatically, on a random 45-80 minute delay - so ARGUS gets your map
   without ever seeing where you are right now.
-- **Teleport-aware.** Live upload pauses the moment you teleport (`/home`, a
-  portal, respawning far away), cancels anything in flight, and once you've
-  settled asks whether to blackzone where you landed before it resumes.
+- **Teleport-aware.** Teleport somewhere far outside the upload area (`/home`
+  to a distant base, say) and live upload pauses, blackzones a 25-region radius
+  around where you landed in the Overworld and Nether, and asks you to keep,
+  cancel or edit it on Xaero's map before it resumes.
 - **Whole-map upload (opt-in).** Lifts the default distance limit for one
   session, so regions anywhere on the map can be uploaded.
 - **Blackzones.** Mark areas that are never uploaded - your base, a stash.
@@ -103,14 +104,27 @@ turns them on for you.
   [distance limit](#distance-limit) for the session, by hand or with live
   upload. Blackzones still apply.
 
-**Live upload pauses at once when you teleport** - the server's "Teleporting to
-X in N seconds" message, a move of more than 128 blocks in one step, or a
-dimension change (respawning far from where you died counts). Anything in flight
-is cancelled. After you've arrived and settled (5 seconds with no further jump),
-two popups follow: blackzone the area around you (3x3 regions)? then resume?
-Nothing resumes until you confirm, and resuming starts a fresh random delay. The
-popups only open when no other screen is showing. Your position is compared
-tick to tick to spot a jump and is never stored or sent anywhere.
+**Live upload pauses when you teleport out of the upload area.** A teleport is a
+move of more than 128 blocks in one step or a dimension change (a portal trip,
+respawning far from where you died). If you land inside the default
+[distance limit](#distance-limit) - about 102,400 blocks each way, whether or not
+whole-map upload is on - nothing happens. If you land outside it, and not
+already inside one of your blackzones:
+
+1. Live upload pauses at once and cancels anything in flight.
+2. ARGUS blackzones 25 regions (about 12,800 blocks) in every direction from
+   where you landed, in the dimension you arrived in and its Overworld/Nether
+   counterpart (coordinates scale 8:1). The End has no counterpart.
+3. Once you've settled (5 seconds with no further jump) and no other screen is
+   open, a popup asks about that blackzone: **OK** keeps it, **Cancel** removes
+   it, **Modify** opens Xaero's World Map so you can drag-select and mark your
+   own (right-click a blackzone there to remove the automatic one).
+4. Then it asks whether to resume. Nothing resumes until you confirm, and
+   resuming starts a fresh random delay.
+
+The blackzone exists from the moment you land, so it protects you even if you
+disconnect before answering. Your position is compared tick to tick to spot a
+jump and is never stored or sent anywhere.
 
 ### Re-uploading regions that changed
 
@@ -143,7 +157,7 @@ uploaded until you remove it. It's local only - never sent anywhere, and nothing
 in an upload hints that one exists. It's per server (layer), so two servers can
 reuse the same coordinates without clashing.
 
-Add one from the map (right-click), the teleport prompt, or
+Add one from the map (right-click), automatically when live upload catches a far teleport, or
 `/argus blackzone add <id> <dimension> <minX> <minZ> <maxX> <maxZ> [label]`
 (region numbers - the numbers in a Xaero filename like `3_-1.zip`). The GUI's
 **Blackzones** tab lists them, and `/argus blackzone list` does too.

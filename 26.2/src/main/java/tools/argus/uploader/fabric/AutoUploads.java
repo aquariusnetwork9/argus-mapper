@@ -1,8 +1,8 @@
 package tools.argus.uploader.fabric;
 
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.message.v1.ClientReceiveMessageEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.Screen;
@@ -17,17 +17,18 @@ import tools.argus.uploader.core.AutoUploadSelection;
 import tools.argus.uploader.core.BlackZone;
 import tools.argus.uploader.core.BlackzoneStore;
 import tools.argus.uploader.core.CoordLimits;
-import tools.argus.uploader.core.RegionBounds;
 import tools.argus.uploader.core.RegionFile;
+import tools.argus.uploader.core.TeleportBlackzones;
 import tools.argus.uploader.core.UploadManifest;
 import tools.argus.uploader.core.UploadProgressListener;
 import tools.argus.uploader.core.UploadRunner;
 import tools.argus.uploader.core.UploadTracker;
+import tools.argus.uploader.fabric.gui.AutoBlackzoneScreen;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -35,23 +36,21 @@ import java.util.concurrent.atomic.AtomicInteger;
  * verified via javap on the real 26.2 jar: {@code Minecraft.level}/{@code player} (public fields),
  * {@code Level.dimension()} and {@code Level.OVERWORLD/NETHER/END}, {@code Entity.getX/Y/Z()},
  * {@code Minecraft.gui.screen()} for the open screen, {@code ConfirmScreen}'s 5-argument
- * constructor and {@code setScreenAndShow}; the Fabric message event's {@code Game} callback is
- * {@code (Component, boolean)}.
+ * constructor and {@code setScreenAndShow}.
  */
 public final class AutoUploads {
 
     public enum Kind { LIVE, WHOLE_MAP }
-
-    private static final Set<String> BLACKZONE_DIMENSIONS = Set.of("overworld", "the_nether", "theend");
 
     private static final String LIVE_BODY = "ARGUS Mapper will upload the regions you explore from now on, "
             + "automatically, about every 45-80 minutes (random), until you turn it off, disconnect or close "
             + "the game. A changed region replaces its older copy. "
             + "Regions still being written to wait until they have been untouched for 10 minutes. "
             + "Blackzones still apply.\n\n"
-            + "It pauses at once if you teleport (128+ blocks, a dimension change, or a server teleport "
-            + "countdown). Once you've arrived and settled, it asks whether to blackzone the spot and "
-            + "whether to resume.";
+            + "If you teleport (128+ blocks in one step, or a dimension change) and land outside that "
+            + "upload area, it pauses, blackzones about " + TeleportBlackzones.RADIUS_REGIONS * 512
+            + " blocks around where you landed in the Overworld and Nether, and asks you to keep, cancel "
+            + "or modify that blackzone before it can resume. Teleports inside the area change nothing.";
 
     private static final String WHOLE_MAP_BODY = "Uploads are normally limited to within "
             + CoordLimits.MAX_ABS_REGION + " regions (about " + CoordLimits.MAX_ABS_REGION * 512
@@ -63,6 +62,8 @@ public final class AutoUploads {
 
     private static volatile Kind pendingEnable;
     private static volatile AutoUploadCoordinator.Teleport pendingTeleport;
+    private static volatile List<BlackZone> arrivalZones = List.of();
+    private static volatile boolean awaitingMapClose;
     private static volatile UploadRunner autoRunner;
     private static volatile String enabledLayer;
 
@@ -71,11 +72,6 @@ public final class AutoUploads {
 
     public static void register() {
         ClientTickEvents.END_CLIENT_TICK.register(AutoUploads::onTick);
-        ClientReceiveMessageEvents.GAME.register((message, overlay) -> {
-            if (!overlay) {
-                coordinator.onChatMessage(message.getString(), System.currentTimeMillis());
-            }
-        });
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> resetAll());
     }
 
@@ -122,6 +118,8 @@ public final class AutoUploads {
         enabledLayer = null;
         pendingEnable = null;
         pendingTeleport = null;
+        arrivalZones = List.of();
+        awaitingMapClose = false;
     }
 
     private static void onTick(Minecraft client) {
@@ -139,6 +137,10 @@ public final class AutoUploads {
             pendingEnable = null;
             showEnablePopup(client, kind, null, () -> {
             });
+        }
+        if (awaitingMapClose && client.gui.screen() == null) {
+            awaitingMapClose = false;
+            showResumePrompt(client);
         }
         AutoUploadCoordinator.Teleport teleport = pendingTeleport;
         if (teleport != null && client.gui.screen() == null) {
@@ -258,41 +260,109 @@ public final class AutoUploads {
 
     // ------------------------------------------------------------ teleport prompts
 
-    private static void showBlackzonePrompt(Minecraft client, AutoUploadCoordinator.Teleport teleport) {
+    private static boolean protectArrival(AutoUploadCoordinator.Teleport teleport) {
         ArgusConfig config = ArgusUploaderClientMod.config();
-        if (!BLACKZONE_DIMENSIONS.contains(teleport.dimension()) || config.layer.isBlank()) {
+        BlackzoneStore store = ArgusUploaderClientMod.blackzoneStore();
+        int regionX = (int) Math.floor(teleport.x()) >> 9;
+        int regionZ = (int) Math.floor(teleport.z()) >> 9;
+        for (BlackZone zone : store.forServer(teleport.dimension(), config.layer)) {
+            if (zone.bounds().contains(regionX, regionZ)) {
+                return false;
+            }
+        }
+        List<BlackZone> made = new ArrayList<>(arrivalZones);
+        for (BlackZone zone : TeleportBlackzones.plan(teleport.dimension(), teleport.x(), teleport.z(),
+                config.layer, "auto-" + System.currentTimeMillis())) {
+            try {
+                store.addOrReplace(zone);
+                made.add(zone);
+            } catch (IOException e) {
+                feedback(Minecraft.getInstance(), "Failed to save blackzone: " + e.getMessage());
+            }
+        }
+        arrivalZones = made;
+        return true;
+    }
+
+    private static void showBlackzonePrompt(Minecraft client, AutoUploadCoordinator.Teleport teleport) {
+        List<BlackZone> zones = arrivalZones;
+        arrivalZones = List.of();
+        if (zones.isEmpty()) {
             showResumePrompt(client);
             return;
         }
-        String what = switch (teleport.cause()) {
-            case JUMP -> "You moved about " + Math.round(teleport.blocksMoved()) + " blocks in one step.";
-            case DIMENSION_CHANGE -> "You changed dimension.";
-            case ANNOUNCED -> "The server announced a teleport.";
-        };
-        client.setScreenAndShow(new ConfirmScreen(
-                blackzoneHere -> {
-                    if (blackzoneHere) {
-                        createBlackzone(client, teleport);
+        client.setScreenAndShow(new AutoBlackzoneScreen(
+                "Teleported outside the upload area",
+                arrivalBody(teleport, zones),
+                choice -> {
+                    switch (choice) {
+                        case OK -> showResumePrompt(client);
+                        case CANCEL -> {
+                            removeArrivalZones(client, zones);
+                            showResumePrompt(client);
+                        }
+                        case MODIFY -> modifyOnMap(client);
                     }
-                    showResumePrompt(client);
-                },
-                Component.literal("Teleport detected - live upload paused"),
-                Component.literal(what + "\nBlackzone the area around where you are now (3x3 regions, about 1,500 "
-                        + "blocks across)? Nothing in it will ever be uploaded."),
-                Component.literal("Blackzone here"), Component.literal("Skip")));
+                }));
     }
 
-    private static void createBlackzone(Minecraft client, AutoUploadCoordinator.Teleport teleport) {
-        int regionX = (int) Math.floor(teleport.x()) >> 9;
-        int regionZ = (int) Math.floor(teleport.z()) >> 9;
-        RegionBounds bounds = RegionBounds.ofCorners(regionX - 1, regionZ - 1, regionX + 1, regionZ + 1);
+    private static String arrivalBody(AutoUploadCoordinator.Teleport teleport, List<BlackZone> zones) {
+        StringBuilder where = new StringBuilder();
+        for (BlackZone zone : zones) {
+            if (!where.isEmpty()) {
+                where.append(" and ");
+            }
+            where.append(dimensionName(zone.dimension()));
+        }
+        return "You landed at " + Math.round(teleport.x()) + ", " + Math.round(teleport.z()) + " in "
+                + dimensionName(teleport.dimension()) + ", outside the area uploads normally cover, so live "
+                + "upload is paused.\n\nARGUS blackzoned about "
+                + String.format("%,d", TeleportBlackzones.RADIUS_REGIONS * 512) + " blocks in every direction "
+                + "from there in " + where + ". Nothing inside it will be uploaded.\n\n"
+                + "OK keeps it. Cancel removes it. Modify opens Xaero's World Map: drag a box, right-click "
+                + "it and pick Mark Blackzone.";
+    }
+
+    private static String dimensionName(String dimension) {
+        return switch (dimension) {
+            case "the_nether" -> "the Nether";
+            case "theend" -> "the End";
+            default -> "the Overworld";
+        };
+    }
+
+    private static void removeArrivalZones(Minecraft client, List<BlackZone> zones) {
+        BlackzoneStore store = ArgusUploaderClientMod.blackzoneStore();
         try {
-            ArgusUploaderClientMod.blackzoneStore().addOrReplace(new BlackZone(
-                    "auto-" + System.currentTimeMillis(), teleport.dimension(),
-                    ArgusUploaderClientMod.config().layer, bounds, "teleport arrival"));
-            feedback(client, "Blackzone saved around you. Remove it later from the GUI's Blackzones tab.");
+            for (BlackZone zone : zones) {
+                store.remove(zone.id());
+            }
+            feedback(client, "Removed the automatic blackzone.");
         } catch (IOException e) {
-            feedback(client, "Failed to save blackzone: " + e.getMessage());
+            feedback(client, "Failed to remove the blackzone: " + e.getMessage());
+        }
+    }
+
+    private static void modifyOnMap(Minecraft client) {
+        if (!openXaeroMap(client)) {
+            feedback(client, "Xaero's World Map isn't available, so the automatic blackzone was kept. "
+                    + "Change it from the GUI's Blackzones tab.");
+            showResumePrompt(client);
+            return;
+        }
+        awaitingMapClose = true;
+        feedback(client, "Drag a box over the area, right-click it and pick Mark Blackzone; right-click a "
+                + "blackzone to remove it. Close the map when you're done.");
+    }
+
+    private static boolean openXaeroMap(Minecraft client) {
+        if (!FabricLoader.getInstance().isModLoaded("xaeroworldmap")) {
+            return false;
+        }
+        try {
+            return XaeroMapOpener.open(client);
+        } catch (RuntimeException | LinkageError e) {
+            return false;
         }
     }
 
@@ -342,6 +412,11 @@ public final class AutoUploads {
             if (runner != null && runner.isRunning()) {
                 runner.cancel();
             }
+        }
+
+        @Override
+        public boolean protectArrival(AutoUploadCoordinator.Teleport teleport) {
+            return AutoUploads.protectArrival(teleport);
         }
 
         @Override

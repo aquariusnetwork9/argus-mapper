@@ -37,4 +37,9 @@ public final class CoordLimits {
     public static boolean inRange(int x, int z) {
         return inRange(x) && inRange(z);
     }
+
+    /** The fixed default area, whether or not whole-map upload has lifted the limit. */
+    public static boolean withinDefaultLimit(int x, int z) {
+        return x >= -MAX_ABS_REGION && x <= MAX_ABS_REGION && z >= -MAX_ABS_REGION && z <= MAX_ABS_REGION;
+    }
 }

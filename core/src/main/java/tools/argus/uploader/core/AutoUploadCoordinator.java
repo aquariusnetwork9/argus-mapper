@@ -1,7 +1,6 @@
 package tools.argus.uploader.core;
 
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.random.RandomGenerator;
 
 /**
@@ -11,24 +10,24 @@ import java.util.random.RandomGenerator;
  *
  * <p>While on, a cycle is started after a random delay of {@link #MIN_DELAY_MILLIS} to
  * {@link #MAX_DELAY_MILLIS}: a compromise between streaming a player's path as it happens and
- * uploading by hand, so the backend never sees where a player is in real time. A teleport - the
- * server's countdown message, a jump over {@link TeleportDetector#THRESHOLD_BLOCKS} blocks, or a
- * dimension change - pauses it immediately and cancels any run in flight. The player is only asked
- * what to do once the teleport has settled ({@link #SETTLE_MILLIS} with no further jump, and no
- * further announced teleport pending), so the prompt never opens mid-load and always refers to
- * where they ended up; nothing resumes until {@link #resume} is called. All time is passed in, so
- * this is unit-testable without waiting.
+ * uploading by hand, so the backend never sees where a player is in real time. A teleport - a jump
+ * over {@link TeleportDetector#THRESHOLD_BLOCKS} blocks or a dimension change - that lands outside
+ * the default upload area (and isn't already blackzoned) pauses it immediately, cancels any run in
+ * flight and has the host blackzone the arrival. Landing inside the area does nothing. The player
+ * is only asked what to do once the teleport has settled ({@link #SETTLE_MILLIS} with no further
+ * jump), so the prompt never opens mid-load and always refers to where they ended up; nothing
+ * resumes until {@link #resume} is called. All time is passed in, so this is unit-testable without
+ * waiting.
  */
 public final class AutoUploadCoordinator {
 
     public static final long MIN_DELAY_MILLIS = 45L * 60_000L;
     public static final long MAX_DELAY_MILLIS = 80L * 60_000L;
     public static final long SETTLE_MILLIS = 5_000L;
-    private static final long ARRIVAL_GRACE_MILLIS = 20_000L;
 
-    public enum Cause { ANNOUNCED, JUMP, DIMENSION_CHANGE }
+    public enum Cause { JUMP, DIMENSION_CHANGE }
 
-    /** @param blocksMoved 0 when unknown (announced but no jump seen, or a dimension change) */
+    /** @param blocksMoved 0 for a dimension change */
     public record Teleport(String dimension, double x, double z, double blocksMoved, Cause cause) {
     }
 
@@ -39,6 +38,13 @@ public final class AutoUploadCoordinator {
         void startCycle(long liveSinceMillis);
 
         void cancelAutoRun();
+
+        /**
+         * A teleport landed outside the default upload area: blackzone the arrival.
+         *
+         * @return false if it is already covered by a blackzone, so nothing needs pausing or asking
+         */
+        boolean protectArrival(Teleport teleport);
 
         /** Ask the player what to do; answer with {@link #resume} or {@link #promptFinished}. */
         void promptTeleport(Teleport teleport);
@@ -53,15 +59,10 @@ public final class AutoUploadCoordinator {
     private boolean promptOutstanding;
     private long liveSinceMillis;
     private long nextRunAtMillis;
-    private long awaitingArrivalUntilMillis;
     private long settleUntilMillis;
-    private Cause settleCause;
-    private double settleBlocks;
+    private Teleport settleTeleport;
 
     private boolean hasPosition;
-    private String lastDimension;
-    private double lastX;
-    private double lastZ;
 
     public AutoUploadCoordinator(Host host, RandomGenerator random) {
         this.host = host;
@@ -103,38 +104,28 @@ public final class AutoUploadCoordinator {
         paused = false;
         promptOutstanding = false;
         nextRunAtMillis = 0;
-        awaitingArrivalUntilMillis = 0;
         settleUntilMillis = 0;
-    }
-
-    public synchronized void onChatMessage(String message, long now) {
-        if (!live) {
-            return;
-        }
-        OptionalInt seconds = TeleportChat.secondsUntilTeleport(message);
-        if (seconds.isEmpty() || promptOutstanding) {
-            return;
-        }
-        pause();
-        long deadline = now + seconds.getAsInt() * 1000L + ARRIVAL_GRACE_MILLIS;
-        awaitingArrivalUntilMillis = Math.max(awaitingArrivalUntilMillis, deadline);
+        settleTeleport = null;
     }
 
     public synchronized void onPlayerPosition(String dimension, double x, double y, double z, long now) {
         hasPosition = true;
-        lastDimension = dimension;
-        lastX = x;
-        lastZ = z;
         Optional<TeleportDetector.Jump> jump = detector.observe(dimension, x, y, z);
         if (jump.isEmpty() || !live || promptOutstanding) {
             return;
         }
         TeleportDetector.Jump j = jump.get();
+        if (!TeleportBlackzones.isOutsideDefaultLimit(x, z)) {
+            return;
+        }
+        Teleport teleport = new Teleport(dimension, x, z, j.blocksMoved(),
+                j.dimensionChanged() ? Cause.DIMENSION_CHANGE : Cause.JUMP);
+        if (!host.protectArrival(teleport)) {
+            return;
+        }
         pause();
-        awaitingArrivalUntilMillis = 0;
         settleUntilMillis = now + SETTLE_MILLIS;
-        settleCause = j.dimensionChanged() ? Cause.DIMENSION_CHANGE : Cause.JUMP;
-        settleBlocks = j.blocksMoved();
+        settleTeleport = teleport;
     }
 
     /** The player is briefly absent (a loading screen, a respawn). The baseline is kept so a jump
@@ -147,18 +138,9 @@ public final class AutoUploadCoordinator {
         if (!live) {
             return;
         }
-        if (awaitingArrivalUntilMillis != 0 && now >= awaitingArrivalUntilMillis && !promptOutstanding) {
-            awaitingArrivalUntilMillis = 0;
-            if (settleUntilMillis == 0) {
-                settleUntilMillis = now;
-                settleCause = Cause.ANNOUNCED;
-                settleBlocks = 0;
-            }
-        }
-        if (settleUntilMillis != 0 && awaitingArrivalUntilMillis == 0 && now >= settleUntilMillis
-                && hasPosition && !promptOutstanding) {
+        if (settleUntilMillis != 0 && now >= settleUntilMillis && hasPosition && !promptOutstanding) {
             settleUntilMillis = 0;
-            prompt(new Teleport(lastDimension, lastX, lastZ, settleBlocks, settleCause));
+            prompt(settleTeleport);
             return;
         }
         if (paused || nextRunAtMillis == 0 || now < nextRunAtMillis) {
@@ -177,7 +159,6 @@ public final class AutoUploadCoordinator {
         }
         paused = false;
         promptOutstanding = false;
-        awaitingArrivalUntilMillis = 0;
         settleUntilMillis = 0;
         nextRunAtMillis = now + randomDelay();
     }
@@ -192,7 +173,7 @@ public final class AutoUploadCoordinator {
             return "Off";
         }
         if (paused) {
-            return "Paused - teleport detected";
+            return "Paused - teleported outside the upload area";
         }
         long minutes = Math.max(1, (nextRunAtMillis - now + 59_999L) / 60_000L);
         return "On - next upload in about " + minutes + " min";

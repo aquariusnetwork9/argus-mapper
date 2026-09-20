@@ -312,23 +312,36 @@ minutes after turning it on, so leave it running.
 - [ ] Disconnect: live upload is off on rejoin. Restart: off.
 - [ ] `/argus live off` stops it and cancels a run in progress.
 
-### 12. Live upload pauses on teleports
+### 12. Live upload pauses on far teleports
 
-- [ ] With live on, run a teleport that prints "Teleporting to X in N seconds"
-      (e.g. `/home` on 6b6t). The Uploads tab shows "Paused - teleport
-      detected" immediately, before you arrive.
-- [ ] After arriving, and only after about 5 seconds of no further movement
-      jump, the "Teleport detected - live upload paused" popup opens (not during
-      the loading screen, not while another screen is open). **Blackzone here**
-      saves a 3x3-region blackzone around you (check the Blackzones tab).
-- [ ] A second popup asks to resume. **Stay paused** keeps it paused
-      (`/argus live resume` or the Uploads-tab button resumes). **Resume**
-      continues on a fresh random delay - nothing uploads right away.
-- [ ] A jump over 128 blocks with no countdown message (e.g. a portal, or
-      `/tp`) and a dimension change also pause and prompt.
-- [ ] Teleport while a live upload run is in flight: the run is cancelled.
-- [ ] Popup while in danger: confirm it is acceptable that it takes over input
-      until answered.
+The default area is 200 regions (about 102,400 blocks) each way, in every
+dimension, even with whole-map upload on.
+
+- [ ] With live on, teleport to somewhere inside the area (`/home`, a portal,
+      `/tp`). Nothing pauses and no popup opens.
+- [ ] Teleport to somewhere outside it (more than 102,400 blocks out). The
+      Uploads tab shows "Paused - teleported outside the upload area" at once
+      and a blackzone exists immediately (Blackzones tab: one for the dimension
+      you're in and one for the Overworld/Nether counterpart, ids `auto-...`).
+- [ ] After about 5 seconds of no further jump (not during the loading screen,
+      not while another screen is open) the "Teleported outside the upload area"
+      popup opens with **OK / Cancel / Modify**, and Esc does not close it.
+- [ ] **OK** keeps the blackzones. **Cancel** removes them. Either way the
+      resume popup follows.
+- [ ] **Modify** opens Xaero's World Map (with Xaero not installed: a chat note
+      and the blackzone is kept). Drag-select and **Mark Blackzone** works, and
+      so does right-click on a blackzone and **Remove ARGUS Blackzone**. Closing
+      the map opens the resume popup.
+- [ ] The resume popup: **Stay paused** keeps it paused (`/argus live resume` or
+      the Uploads-tab button resumes). **Resume** continues on a fresh random
+      delay - nothing uploads right away.
+- [ ] Teleport out of the area again while standing in a blackzone from the last
+      time: no pause, no popup.
+- [ ] Disconnect before answering: the blackzones are still there.
+- [ ] Teleport while a live upload run is in flight (outside the area): the run
+      is cancelled.
+- [ ] Turn whole-map on and repeat the outside-the-area teleport: it still
+      pauses.
 
 ### 13. Upload header
 

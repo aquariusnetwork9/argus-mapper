@@ -16,11 +16,14 @@ class AutoUploadCoordinatorTest {
     private static final long MIN = AutoUploadCoordinator.MIN_DELAY_MILLIS;
     private static final long MAX = AutoUploadCoordinator.MAX_DELAY_MILLIS;
     private static final long SETTLE = AutoUploadCoordinator.SETTLE_MILLIS;
+    private static final double FAR = (CoordLimits.MAX_ABS_REGION + 10) * 512.0;
 
     private static final class FakeHost implements AutoUploadCoordinator.Host {
         boolean running;
+        boolean alreadyCovered;
         int cancels;
         final List<Long> cycleLiveSince = new ArrayList<>();
+        final List<AutoUploadCoordinator.Teleport> protectedArrivals = new ArrayList<>();
         final List<AutoUploadCoordinator.Teleport> prompts = new ArrayList<>();
 
         @Override
@@ -39,6 +42,12 @@ class AutoUploadCoordinatorTest {
         }
 
         @Override
+        public boolean protectArrival(AutoUploadCoordinator.Teleport teleport) {
+            protectedArrivals.add(teleport);
+            return !alreadyCovered;
+        }
+
+        @Override
         public void promptTeleport(AutoUploadCoordinator.Teleport teleport) {
             prompts.add(teleport);
         }
@@ -53,9 +62,9 @@ class AutoUploadCoordinatorTest {
         coordinator = new AutoUploadCoordinator(host, new Random(42));
     }
 
-    private void jumpFarAway() {
+    private void teleportOutsideTheArea() {
         coordinator.onPlayerPosition("overworld", 0, 64, 0, 100);
-        coordinator.onPlayerPosition("overworld", 400, 64, 0, 150);
+        coordinator.onPlayerPosition("overworld", FAR, 64, FAR, 150);
     }
 
     @Test
@@ -120,68 +129,115 @@ class AutoUploadCoordinatorTest {
     }
 
     @Test
-    void theServersTeleportCountdownPausesAtOnceAndCancelsTheRun() {
+    void aTeleportOutsideTheAreaPausesCancelsTheRunAndProtectsTheArrival() {
         coordinator.setLive(true, 0);
         int cancelsBefore = host.cancels;
-        coordinator.onChatMessage("Teleporting to home in 15 seconds", 1_000);
+        teleportOutsideTheArea();
 
         assertTrue(coordinator.isPaused());
         assertEquals(cancelsBefore + 1, host.cancels);
-        coordinator.tick(10 * MAX - 1);
+        assertEquals(1, host.protectedArrivals.size());
+        assertEquals(FAR, host.protectedArrivals.get(0).x());
+        assertEquals(AutoUploadCoordinator.Cause.JUMP, host.protectedArrivals.get(0).cause());
+        assertTrue(host.prompts.isEmpty(), "the prompt waits for the teleport to settle");
+        coordinator.tick(10 * MAX);
         assertTrue(host.cycleLiveSince.isEmpty(), "no upload while paused");
-        assertTrue(host.prompts.isEmpty(), "the prompt waits for arrival");
     }
 
     @Test
-    void arrivalAfterAnAnnouncedTeleportRaisesOnePrompt() {
+    void aTeleportInsideTheAreaDoesNothing() {
         coordinator.setLive(true, 0);
-        coordinator.onPlayerPosition("overworld", 0, 64, 0, 500);
-        coordinator.onChatMessage("Teleporting to home in 3 seconds", 1_000);
-        coordinator.onPlayerPosition("overworld", 5_000, 70, 5_000, 4_000);
+        coordinator.onPlayerPosition("overworld", 0, 64, 0, 100);
+        coordinator.onPlayerPosition("overworld", 50_000, 64, -50_000, 150);
+
+        assertFalse(coordinator.isPaused());
+        assertTrue(host.protectedArrivals.isEmpty());
+        coordinator.tick(150 + SETTLE);
+        assertTrue(host.prompts.isEmpty());
+    }
+
+    @Test
+    void theEdgeOfTheAreaIsStillInside() {
+        coordinator.setLive(true, 0);
+        double lastInside = (CoordLimits.MAX_ABS_REGION + 1) * 512.0 - 1;
+        coordinator.onPlayerPosition("overworld", 0, 64, 0, 100);
+        coordinator.onPlayerPosition("overworld", lastInside, 64, 0, 150);
+        assertFalse(coordinator.isPaused());
+
+        coordinator.onPlayerPosition("overworld", lastInside + 1, 64, 0, 200);
+        assertFalse(coordinator.isPaused(), "walking across the edge is not a teleport");
+        coordinator.onPlayerPosition("overworld", lastInside + 1, 64, 600, 250);
+        assertTrue(coordinator.isPaused());
+    }
+
+    @Test
+    void wholeMapUploadDoesNotWidenTheTeleportArea() {
+        CoordLimits.setLifted(true);
+        try {
+            coordinator.setLive(true, 0);
+            teleportOutsideTheArea();
+            assertTrue(coordinator.isPaused());
+        } finally {
+            CoordLimits.setLifted(false);
+        }
+    }
+
+    @Test
+    void anArrivalAlreadyCoveredByABlackzoneDoesNotPauseOrAsk() {
+        coordinator.setLive(true, 0);
+        host.alreadyCovered = true;
+        teleportOutsideTheArea();
+
+        assertFalse(coordinator.isPaused());
+        coordinator.tick(150 + SETTLE);
+        assertTrue(host.prompts.isEmpty());
+    }
+
+    @Test
+    void theDestinationIsCheckedInTheDimensionThePlayerArrivedIn() {
+        coordinator.setLive(true, 0);
+        coordinator.onPlayerPosition("overworld", 100_000, 64, 100_000, 100);
+        coordinator.onPlayerPosition("the_nether", 12_500, 64, 12_500, 150);
+        assertFalse(coordinator.isPaused(), "a portal trip that lands inside the area is not a pause");
+
+        coordinator.onPlayerPosition("overworld", FAR, 64, FAR, 200);
+        assertTrue(coordinator.isPaused());
+        assertEquals("overworld", host.protectedArrivals.get(0).dimension());
+        assertEquals(AutoUploadCoordinator.Cause.DIMENSION_CHANGE, host.protectedArrivals.get(0).cause());
+    }
+
+    @Test
+    void arrivalRaisesOnePromptOnceItHasSettled() {
+        coordinator.setLive(true, 0);
+        coordinator.onPlayerPosition("overworld", 0, 64, 0, 100);
+        coordinator.onPlayerPosition("overworld", FAR, 70, FAR, 4_000);
+        coordinator.onPlayerPosition("overworld", FAR + 3, 70, FAR + 2, 6_000);
         assertTrue(host.prompts.isEmpty(), "not the moment it arrives");
 
-        coordinator.onPlayerPosition("overworld", 5_003, 70, 5_002, 6_000);
         coordinator.tick(4_000 + SETTLE - 1);
         assertTrue(host.prompts.isEmpty(), "still settling");
         coordinator.tick(4_000 + SETTLE);
 
         assertEquals(1, host.prompts.size());
-        AutoUploadCoordinator.Teleport t = host.prompts.get(0);
-        assertEquals(AutoUploadCoordinator.Cause.JUMP, t.cause());
-        assertEquals(5_003, t.x(), "refers to where the player ended up, not the first tick of the jump");
+        assertEquals(FAR, host.prompts.get(0).x());
         coordinator.onPlayerPosition("overworld", 9_000, 70, 9_000, 9_100);
         assertEquals(1, host.prompts.size(), "no second prompt while one is outstanding");
     }
 
     @Test
-    void aSecondJumpWhileSettlingRestartsTheWait() {
+    void aSecondFarJumpWhileSettlingRestartsTheWaitAndIsProtectedToo() {
         coordinator.setLive(true, 0);
         coordinator.onPlayerPosition("overworld", 0, 64, 0, 100);
-        coordinator.onPlayerPosition("overworld", 400, 64, 0, 150);
-        coordinator.onPlayerPosition("overworld", 900, 64, 0, 3_000);
+        coordinator.onPlayerPosition("overworld", FAR, 64, 0, 150);
+        coordinator.onPlayerPosition("overworld", FAR, 64, FAR + 5_000, 3_000);
 
         coordinator.tick(150 + SETTLE);
         assertTrue(host.prompts.isEmpty(), "the first jump's deadline no longer applies");
         coordinator.tick(3_000 + SETTLE);
 
+        assertEquals(2, host.protectedArrivals.size());
         assertEquals(1, host.prompts.size());
-        assertEquals(900, host.prompts.get(0).x());
-    }
-
-    @Test
-    void aSecondAnnouncedTeleportWhileSettlingWaitsForItsArrival() {
-        coordinator.setLive(true, 0);
-        coordinator.onPlayerPosition("overworld", 0, 64, 0, 100);
-        coordinator.onPlayerPosition("overworld", 400, 64, 0, 150);
-        coordinator.onChatMessage("Teleporting to spawn in 10 seconds", 2_000);
-
-        coordinator.tick(150 + SETTLE + 1_000);
-        assertTrue(host.prompts.isEmpty(), "another teleport is on its way");
-
-        coordinator.onPlayerPosition("overworld", 50, 64, 0, 12_000);
-        coordinator.tick(12_000 + SETTLE);
-        assertEquals(1, host.prompts.size());
-        assertEquals(50, host.prompts.get(0).x());
+        assertEquals(FAR + 5_000, host.prompts.get(0).z());
     }
 
     @Test
@@ -189,7 +245,7 @@ class AutoUploadCoordinatorTest {
         coordinator.setLive(true, 0);
         coordinator.onPlayerPosition("overworld", 100, 64, 100, 100);
         coordinator.onPlayerGone();
-        coordinator.onPlayerPosition("the_nether", 12, 64, 12, 200);
+        coordinator.onPlayerPosition("the_nether", FAR, 64, FAR, 200);
 
         assertTrue(coordinator.isPaused());
         coordinator.tick(200 + SETTLE);
@@ -197,49 +253,25 @@ class AutoUploadCoordinatorTest {
     }
 
     @Test
-    void announcedTeleportWithNoArrivalStillPromptsAfterTheGracePeriod() {
-        coordinator.setLive(true, 0);
-        coordinator.onPlayerPosition("overworld", 10, 64, 10, 500);
-        coordinator.onChatMessage("Teleporting to home in 3 seconds", 1_000);
-
-        coordinator.tick(1_000 + 3_000);
-        assertTrue(host.prompts.isEmpty());
-        coordinator.tick(1_000 + 3_000 + 21_000);
-        assertEquals(1, host.prompts.size());
-        assertEquals(AutoUploadCoordinator.Cause.ANNOUNCED, host.prompts.get(0).cause());
-    }
-
-    @Test
-    void aJumpWithNoCountdownMessageAlsoPausesAndPrompts() {
-        coordinator.setLive(true, 0);
-        jumpFarAway();
-
-        assertTrue(coordinator.isPaused(), "paused the instant it happens");
-        assertTrue(host.prompts.isEmpty());
-        coordinator.tick(150 + SETTLE);
-        assertEquals(1, host.prompts.size(), "asked once it has settled");
-    }
-
-    @Test
     void movementBelowTheThresholdNeverPauses() {
         coordinator.setLive(true, 0);
-        coordinator.onPlayerPosition("overworld", 0, 64, 0, 100);
-        coordinator.onPlayerPosition("overworld", 60, 64, 60, 150);
+        coordinator.onPlayerPosition("overworld", FAR, 64, FAR, 100);
+        coordinator.onPlayerPosition("overworld", FAR + 60, 64, FAR + 60, 150);
         assertFalse(coordinator.isPaused());
     }
 
     @Test
     void nothingIsWatchedWhileLiveIsOff() {
-        jumpFarAway();
-        coordinator.onChatMessage("Teleporting to home in 3 seconds", 200);
+        teleportOutsideTheArea();
         assertFalse(coordinator.isPaused());
+        assertTrue(host.protectedArrivals.isEmpty());
         assertTrue(host.prompts.isEmpty());
     }
 
     @Test
     void resumeContinuesWithAFreshDelayNotAnImmediateUpload() {
         coordinator.setLive(true, 0);
-        jumpFarAway();
+        teleportOutsideTheArea();
 
         long resumeAt = 2 * MAX;
         coordinator.resume(resumeAt);
@@ -255,7 +287,7 @@ class AutoUploadCoordinatorTest {
     @Test
     void stayingPausedKeepsUploadsBlockedUntilResumed() {
         coordinator.setLive(true, 0);
-        jumpFarAway();
+        teleportOutsideTheArea();
         coordinator.tick(150 + SETTLE);
         assertEquals(1, host.prompts.size());
         coordinator.promptFinished();
@@ -269,7 +301,7 @@ class AutoUploadCoordinatorTest {
     @Test
     void resetTurnsItOffLikeARestart() {
         coordinator.setLive(true, 0);
-        jumpFarAway();
+        teleportOutsideTheArea();
         coordinator.tick(150 + SETTLE);
 
         coordinator.reset();
@@ -286,7 +318,7 @@ class AutoUploadCoordinatorTest {
         assertEquals("Off", coordinator.statusLine(0));
         coordinator.setLive(true, 0);
         assertTrue(coordinator.statusLine(0).startsWith("On - next upload in about "));
-        coordinator.onChatMessage("Teleporting to home in 3 seconds", 0);
+        teleportOutsideTheArea();
         assertTrue(coordinator.statusLine(0).startsWith("Paused"));
     }
 }
