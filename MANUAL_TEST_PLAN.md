@@ -297,8 +297,9 @@ use a region you're happy to have replaced.
 
 ### 11. Live upload
 
-Use a scratch layer/token you are happy to upload to; the first cycle is 45-80
-minutes after turning it on, so leave it running.
+Use a scratch layer/token you are happy to upload to; the first cycle is 3-10
+minutes after turning it on, but a region only goes once its file has been untouched for
+10 minutes, so map a little, move on, and leave it running for 15-20 minutes.
 
 - [ ] `/argus live on` (or the toggle) opens its own popup; **Cancel** leaves it
       off. **Turn on** starts it and the Uploads tab shows "On - next upload in

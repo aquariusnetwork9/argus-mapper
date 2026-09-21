@@ -21,8 +21,8 @@ import java.util.random.RandomGenerator;
  */
 public final class AutoUploadCoordinator {
 
-    public static final long MIN_DELAY_MILLIS = 45L * 60_000L;
-    public static final long MAX_DELAY_MILLIS = 80L * 60_000L;
+    public static final long MIN_DELAY_MILLIS = 3L * 60_000L;
+    public static final long MAX_DELAY_MILLIS = 10L * 60_000L;
     public static final long SETTLE_MILLIS = 5_000L;
 
     public enum Cause { JUMP, DIMENSION_CHANGE }

@@ -12,7 +12,7 @@ Works on **Minecraft 1.21.11 and 26.2** - the two versions 6b6t lets you join
 - **Upload in a few clicks.** Drag-select an area on Xaero's world map,
   right-click, confirm. Or use the in-game GUI. No commands needed.
 - **Live upload (opt-in).** Switch it on and the mod uploads the regions you
-  explore automatically, on a random 45-80 minute delay - so ARGUS gets your map
+  explore automatically, on a random 3-10 minute delay - so ARGUS gets your map
   without ever seeing where you are right now.
 - **Teleport-aware.** Teleport somewhere far outside the upload area (`/home`
   to a distant base, say) and live upload pauses, blackzones a 25-region radius
@@ -89,7 +89,7 @@ restart or crash, and switched off when you disconnect. There is no setting that
 turns them on for you.
 
 - **Live upload** (`/argus live on|off|resume`) - while on, the mod uploads
-  regions you explore on a random delay of 45-80 minutes. Each cycle sends the
+  regions you explore on a random delay of 3-10 minutes. Each cycle sends the
   regions Xaero has saved since you turned it on that are new or changed since
   their last upload; a changed region replaces its older copy. A region Xaero
   is still writing to (you're mapping it right now) is held back until its file

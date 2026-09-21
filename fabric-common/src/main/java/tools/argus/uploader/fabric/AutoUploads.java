@@ -32,7 +32,7 @@ import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * The two per-session upload switches: live upload (automatic, on a random 45-80 minute delay) and
+ * The two per-session upload switches: live upload (automatic, on a random 3-10 minute delay) and
  * whole-map upload (lifts the region distance limit). Both are in-memory only - never written to
  * config - so both are off after a restart, a crash, or leaving the server. Each needs its own
  * confirm popup to turn on. Live upload pauses when a teleport lands outside the default upload
@@ -43,7 +43,7 @@ public final class AutoUploads {
     public enum Kind { LIVE, WHOLE_MAP }
 
     private static final String LIVE_BODY = "ARGUS Mapper will upload the regions you explore from now on, "
-            + "automatically, about every 45-80 minutes (random), until you turn it off, disconnect or close "
+            + "automatically, about every 3-10 minutes (random), until you turn it off, disconnect or close "
             + "the game. A changed region replaces its older copy. "
             + "Regions still being written to wait until they have been untouched for 10 minutes. "
             + "Blackzones still apply.\n\n"
@@ -219,7 +219,7 @@ public final class AutoUploads {
         }
         enabledLayer = ArgusUploaderClientMod.config().layer;
         coordinator.setLive(true, System.currentTimeMillis());
-        feedback(client, "Live upload is on. The first upload is 45-80 minutes from now, then on a random delay.");
+        feedback(client, "Live upload is on. The first upload is 3-10 minutes from now, then on a random delay.");
     }
 
     // ------------------------------------------------------------ cycles
