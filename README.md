@@ -197,6 +197,31 @@ fps, ping, the renderer's own chunk count). It heads whichever way has the fewes
 existing map files, needs the same setup as auto-map, and stops the same ways.
 Run it once with XaeroPlus Fast Mapping off and once on to compare.
 
+### Bounty regions
+
+The ARGUS bounty program works out which map cells (2 x 2 regions, 1024 x 1024
+blocks) it wants filled in next, nearest to spawn first, plus today's double-token
+cell. Turn on **Bounty** (the GUI's Bounty tab, or `/argus bounty on`) and the mod
+marks them on Xaero's World Map as temporary waypoints named **ARGUS Bounty Region**,
+at the middle of each cell. Today's double-token cell is gold and named **ARGUS
+Bounty Region (2x)**.
+
+- **Off by default.** Nothing is fetched until you turn it on.
+- **What it sends.** While it's on, in the overworld on a server in your server list,
+  the mod asks `bountyUrl` (default `https://map.argus.tools/api/needed-regions`) for
+  the list about every 2 minutes, with `?limit=<bountyLimit>` (default 50). It is a
+  plain public GET: no token, no player name or position, no other data. It asks
+  nothing while you're in the nether or the end, on another server, or in
+  single-player, and after failures it backs off up to 10 minutes.
+- **The markers.** They're temporary (Xaero never saves them), shown on the World Map
+  only (not the minimap or in the world), and replaced on each refresh. They go into
+  the waypoint set you have open. Turning bounty off removes them.
+- **Commands.** `/argus bounty` shows the state, `on` / `off` switch it, `refresh`
+  asks again now (at most every 15 seconds), `clear` removes the markers until the
+  next refresh.
+
+Needs Xaero's Minimap and World Map. Not in the 26.2 build yet.
+
 ## Privacy and safety
 
 **What gets sent.** An upload contains the region's Xaero zip, its file name and
@@ -293,6 +318,7 @@ vanilla Minecraft, and this toggle can't change that.
 | `/argus wholemap [on\|off]` | Whole-map switch; no argument shows status. `on` asks first. |
 | `/argus blackzone add\|list\|remove` | Manage blackzones (`remove` asks first). |
 | `/argus automap [start <minRX> <minRZ> <maxRX> <maxRZ>\|calibrate [speeds]\|stop\|status]` | Fly a box of the map for you, or a speed test flight (experimental). `start` and `calibrate` ask first. |
+| `/argus bounty [on\|off\|refresh\|clear\|status]` | Mark the map's wanted regions on Xaero's World Map (off by default; fetches a public list while on). |
 | `/argus settoken <token>` / `/argus setlayer <layer>` | Set those from in-game. |
 | `/argus server` / `list` / `use <id>` / `add <id> <layer> <matches>` | Server auto-detect and the server list. |
 | `/argus discord sethook <url>` / `test` / `report` | Discord webhook setup and stats. |

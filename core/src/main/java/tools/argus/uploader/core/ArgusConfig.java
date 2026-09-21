@@ -64,6 +64,11 @@ public final class ArgusConfig {
     public int autoMapCruiseY = 475;
     public int autoMapHalfWidthChunks = 0;
 
+    // Off unless the player turns it on: while on, the mod fetches the public bounty list every couple of minutes.
+    public boolean bountyEnabled = false;
+    public String bountyUrl = "https://map.argus.tools/api/needed-regions";
+    public int bountyLimit = 50;
+
     public boolean isUsable() {
         return !token.isBlank() && !layer.isBlank();
     }
@@ -100,6 +105,9 @@ public final class ArgusConfig {
         cfg.autoMapWidthTable = p.getProperty("autoMapWidthTable", cfg.autoMapWidthTable);
         cfg.autoMapCruiseY = (int) parseLong(p.getProperty("autoMapCruiseY"), cfg.autoMapCruiseY);
         cfg.autoMapHalfWidthChunks = (int) parseLong(p.getProperty("autoMapHalfWidthChunks"), cfg.autoMapHalfWidthChunks);
+        cfg.bountyEnabled = Boolean.parseBoolean(p.getProperty("bountyEnabled", String.valueOf(cfg.bountyEnabled)));
+        cfg.bountyUrl = p.getProperty("bountyUrl", cfg.bountyUrl);
+        cfg.bountyLimit = (int) Math.max(1, Math.min(100, parseLong(p.getProperty("bountyLimit"), cfg.bountyLimit)));
         return cfg;
     }
 
@@ -127,6 +135,9 @@ public final class ArgusConfig {
         p.setProperty("autoMapWidthTable", autoMapWidthTable);
         p.setProperty("autoMapCruiseY", String.valueOf(autoMapCruiseY));
         p.setProperty("autoMapHalfWidthChunks", String.valueOf(autoMapHalfWidthChunks));
+        p.setProperty("bountyEnabled", String.valueOf(bountyEnabled));
+        p.setProperty("bountyUrl", bountyUrl);
+        p.setProperty("bountyLimit", String.valueOf(bountyLimit));
         if (file.getParent() != null) {
             Files.createDirectories(file.getParent());
         }

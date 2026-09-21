@@ -470,3 +470,22 @@ Use a scratch layer/token and a few dozen not-yet-uploaded regions.
 - [ ] `argus-mapper-upload-log/` in the game folder has one `.log` per run; open the newest:
       START/REPLY lines with timings, the summary at the end (regions/min, reply times),
       and no token anywhere in it.
+
+### 19. Bounty markers
+
+Needs Xaero's Minimap and World Map, and a server in the server list (6b6t).
+
+- [ ] Fresh install / bounty off: nothing is fetched (no `argus-bounty` traffic), no waypoints.
+- [ ] `/argus bounty on` in the overworld on 6b6t: within a few seconds "ARGUS Bounty Region"
+      waypoints appear on the World Map (up to `bountyLimit`, aqua), at the middle of each
+      cell, and one gold "ARGUS Bounty Region (2x)". They are NOT on the minimap or in the world.
+- [ ] Open Xaero's waypoint menu: the waypoints are there, temporary (not saved: restart the
+      game with bounty off and they're gone).
+- [ ] `/argus bounty` shows "N region(s) marked ... updated Ns ago"; the GUI's Bounty tab
+      shows the same and its toggle, slider and buttons work (Refresh now, Clear markers).
+- [ ] Wait ~2 minutes: the status "updated" resets (a refresh happened) without the waypoints flickering.
+- [ ] Go to the nether: status says waiting (not in the overworld) and no requests are made;
+      back in the overworld it refreshes.
+- [ ] Join a server that isn't in the list: it waits ("not on a known ARGUS server").
+- [ ] `/argus bounty off`: the waypoints disappear at once and nothing more is fetched.
+- [ ] With the network blocked: "Couldn't refresh ..., will retry", old markers stay, no errors in chat.

@@ -19,6 +19,7 @@ import tools.argus.uploader.core.automap.ChunkBox;
 import tools.argus.uploader.fabric.AutoMapper;
 import tools.argus.uploader.fabric.AutoUploads;
 import tools.argus.uploader.fabric.BlackzoneRemoval;
+import tools.argus.uploader.fabric.Bounty;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -38,7 +39,7 @@ import java.util.List;
  */
 public final class ArgusGuiScreen extends Screen {
 
-    private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Blackzones", "Stats", "Uploads", "Auto-map", "Road Dept.", "API"};
+    private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Blackzones", "Stats", "Uploads", "Auto-map", "Bounty", "Road Dept.", "API"};
     private static final int MIN_PANEL_W = 300;
     private static final int HEADER_H = 46;
     private static final int PAD = 12;
@@ -73,7 +74,7 @@ public final class ArgusGuiScreen extends Screen {
     private static final int ACCENT = 0xFF8A6BFF;
     private static final int FIELD_BG = 0xFF1A1C25;
 
-    private enum Tab { GENERAL, TOKEN, SERVERS, BLACKZONES, STATS, UPLOADS, AUTO_MAP, ROAD_DEPT, API }
+    private enum Tab { GENERAL, TOKEN, SERVERS, BLACKZONES, STATS, UPLOADS, AUTO_MAP, BOUNTY, ROAD_DEPT, API }
 
     private Tab currentTab = Tab.GENERAL;
     private int panelX;
@@ -143,6 +144,7 @@ public final class ArgusGuiScreen extends Screen {
             case UPLOADS -> buildUploadsTab(contentTop);
             case ROAD_DEPT -> buildRoadDeptTab(contentTop);
             case AUTO_MAP -> buildAutoMapTab(contentTop);
+            case BOUNTY -> buildBountyTab(contentTop);
             case API -> buildApiTab(contentTop);
         }
     }
@@ -671,6 +673,39 @@ public final class ArgusGuiScreen extends Screen {
         addDrawableChild(saveButton(panelX + PAD, saveY, cfg));
     }
 
+    // ---------------------------------------------------------------- Bounty
+
+    private int bountyStatusY;
+
+    private void buildBountyTab(int top) {
+        ArgusConfig cfg = ArgusUploaderClientMod.config();
+        int gap = 6;
+        int inner = panelW - PAD * 2;
+        int y = top;
+        bountyStatusY = y;
+        y += 40;
+
+        y = toggleRow(y, "Mark bounty regions on the Xaero map", cfg.bountyEnabled, Bounty::setEnabled);
+        y = sliderRow(y, "Regions to mark", 10, 100, 5, cfg.bountyLimit, v -> Integer.toString(v), v -> cfg.bountyLimit = v);
+
+        int buttonW = (inner - gap) / 2;
+        addDrawableChild(new PanelButton(panelX + PAD, y, buttonW, ROW_H, Text.literal("Refresh now"), () -> Bounty.refreshNow()));
+        addDrawableChild(new PanelButton(panelX + PAD + buttonW + gap, y, buttonW, ROW_H, Text.literal("Clear markers"), Bounty::clearMarkers));
+
+        addDrawableChild(saveButton(panelX + PAD, panelY + panelH - PAD - ROW_H, cfg));
+    }
+
+    private void renderBounty(DrawContext context) {
+        int y = bountyStatusY;
+        int width = panelW - PAD * 2;
+        context.drawTextWithShadow(this.textRenderer, this.textRenderer.trimToWidth("Bounty: " + Bounty.statusLine(), width),
+                panelX + PAD, y, TITLE_COLOR);
+        context.drawTextWithShadow(this.textRenderer, this.textRenderer.trimToWidth(
+                "Temporary waypoints on Xaero's World Map.", width), panelX + PAD, y + 14, MUTED);
+        context.drawTextWithShadow(this.textRenderer, this.textRenderer.trimToWidth(
+                "Fetches a public list about every 2 min; sends no token.", width), panelX + PAD, y + 26, MUTED);
+    }
+
     // ---------------------------------------------------------------- shared helpers
 
     private int toggleRow(int y, String text, boolean initial, java.util.function.Consumer<Boolean> onChange) {
@@ -728,6 +763,9 @@ public final class ArgusGuiScreen extends Screen {
         }
         if (currentTab == Tab.AUTO_MAP) {
             renderAutoMap(context);
+        }
+        if (currentTab == Tab.BOUNTY) {
+            renderBounty(context);
         }
 
         super.render(context, mouseX, mouseY, delta);

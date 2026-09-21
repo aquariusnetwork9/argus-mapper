@@ -23,6 +23,7 @@ class ArgusConfigTest {
         assertEquals("", cfg.layer);
         assertFalse(cfg.isUsable());
         assertFalse(cfg.reuploadChangedRegions, "re-uploading must be opt-in");
+        assertFalse(cfg.bountyEnabled, "the bounty fetch must be opt-in");
     }
 
     @Test
@@ -44,6 +45,9 @@ class ArgusConfigTest {
         cfg.enableRichPresence = true;
         cfg.enableAddonApi = false;
         cfg.reuploadChangedRegions = true;
+        cfg.bountyEnabled = true;
+        cfg.bountyUrl = "https://example.test/needed";
+        cfg.bountyLimit = 30;
         cfg.save(file);
 
         ArgusConfig reloaded = ArgusConfig.load(file);
@@ -62,6 +66,9 @@ class ArgusConfigTest {
         assertTrue(reloaded.enableRichPresence);
         assertFalse(reloaded.enableAddonApi);
         assertTrue(reloaded.reuploadChangedRegions);
+        assertTrue(reloaded.bountyEnabled);
+        assertEquals("https://example.test/needed", reloaded.bountyUrl);
+        assertEquals(30, reloaded.bountyLimit);
         assertTrue(reloaded.isUsable());
     }
 

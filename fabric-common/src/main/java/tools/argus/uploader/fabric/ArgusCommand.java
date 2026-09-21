@@ -142,7 +142,38 @@ final class ArgusCommand {
                                                                         IntegerArgumentType.getInteger(ctx, "minRegionZ"),
                                                                         IntegerArgumentType.getInteger(ctx, "maxRegionX"),
                                                                         IntegerArgumentType.getInteger(ctx, "maxRegionZ")))))))))
+                .then(literal("bounty")
+                        .executes(ctx -> bountyStatus(ctx.getSource()))
+                        .then(literal("status").executes(ctx -> bountyStatus(ctx.getSource())))
+                        .then(literal("on").executes(ctx -> bountySet(ctx.getSource(), true)))
+                        .then(literal("off").executes(ctx -> bountySet(ctx.getSource(), false)))
+                        .then(literal("refresh").executes(ctx -> bountyRefresh(ctx.getSource())))
+                        .then(literal("clear").executes(ctx -> bountyClear(ctx.getSource()))))
                 .then(literal("gui").executes(ctx -> openGui(ctx.getSource()))));
+    }
+
+    private static int bountyStatus(FabricClientCommandSource source) {
+        info(source, "Bounty: " + Bounty.statusLine());
+        return 1;
+    }
+
+    private static int bountySet(FabricClientCommandSource source, boolean on) {
+        Bounty.setEnabled(on);
+        info(source, on
+                ? "Bounty markers on. About every 2 minutes, in the overworld on a known server, the mod fetches the public list and marks it on Xaero's World Map."
+                : "Bounty markers off and cleared. Nothing is fetched.");
+        return 1;
+    }
+
+    private static int bountyRefresh(FabricClientCommandSource source) {
+        info(source, Bounty.refreshNow());
+        return 1;
+    }
+
+    private static int bountyClear(FabricClientCommandSource source) {
+        Bounty.clearMarkers();
+        info(source, "Cleared the bounty markers. They come back at the next refresh while bounty is on.");
+        return 1;
     }
 
     private static int autoMapStatus(FabricClientCommandSource source) {
