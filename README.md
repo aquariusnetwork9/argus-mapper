@@ -384,6 +384,13 @@ replies outstanding. A `429` makes the whole run pause for the server's
 `<config dir>/argus-mapper-manifest.txt`, so a big first upload can be split
 across sessions.
 
+Each run also writes a log to `argus-mapper-upload-log/` in the game folder (the
+newest 30 are kept): when every request started, how many were open at once, how
+long the file took to send and the server to reply, the status and reply body,
+rate-limit-looking response headers (all of them for the first few replies and for
+any error), each pause and retry, and a summary with regions per minute and reply
+time percentiles. The token and request headers are never written.
+
 Every upload also carries `X-Region-Modified: <file modified time, UTC epoch
 ms>`, which the API uses to keep the newest copy (the zip's own timestamp has no
 time zone). The `batchId` prefix tells the modes apart: `run-`, `map-run-` (map

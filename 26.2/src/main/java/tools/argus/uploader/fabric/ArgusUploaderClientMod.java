@@ -51,6 +51,7 @@ public final class ArgusUploaderClientMod implements ClientModInitializer {
         serverRegistryPath = configDir.resolve("argus-mapper-servers.properties");
         statsPath = configDir.resolve("argus-mapper-stats.properties");
         blackzonePath = configDir.resolve("argus-mapper-blackzones.properties");
+        tools.argus.uploader.core.UploadLog.setDirectory(FabricLoader.getInstance().getGameDir().resolve("argus-mapper-upload-log"));
         reloadConfig();
         reloadRegistry();
         try {

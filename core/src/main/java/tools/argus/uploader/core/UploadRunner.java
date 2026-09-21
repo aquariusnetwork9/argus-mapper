@@ -161,7 +161,11 @@ public final class UploadRunner {
         }
         listener.onQueueBuilt(toUpload);
 
-        Run run = new Run(new ArrayDeque<>(toUpload), runIdPrefix);
+        UploadLog log = UploadLog.open(runIdPrefix, "queue=" + toUpload.size() + " uploadConcurrency=" + config.uploadConcurrency
+                + " maxPerBatch=" + config.maxPerBatch + " maxRetries=" + config.maxRetries + " endpoint=" + config.apiBaseUrl
+                + "\nfound=" + found.size() + " alreadyUploaded=" + filtered.alreadyUploaded() + " tooLarge=" + filtered.tooLarge()
+                + " blackzoned=" + filtered.excludedByBlackzone() + " heldForMapping=" + filtered.held());
+        Run run = new Run(new ArrayDeque<>(toUpload), runIdPrefix, log);
         totalCount = toUpload.size();
         doneCount.set(0);
         failCount.set(0);
@@ -198,13 +202,16 @@ public final class UploadRunner {
         if (run.outstanding == 0 && (run.cancelled || drained)) {
             run.finished = true;
             running.set(false);
+            run.log.finish(succeededCount(), failCount.get(), run.cancelled);
             listener.onComplete(succeededCount(), failCount.get());
         }
     }
 
     private void dropUnready(Run run) {
         while (!run.queue.isEmpty() && !readyCheck.test(run.queue.peek())) {
-            listener.onRegionDeferred(run.queue.poll());
+            RegionFile deferred = run.queue.poll();
+            run.log.note("SKIP", deferred.filename() + " changed again, left for a later run");
+            listener.onRegionDeferred(deferred);
             totalCount--;
         }
     }
@@ -224,6 +231,7 @@ public final class UploadRunner {
         run.outstanding++;
         run.transmitting++;
         attempt.transmitting = true;
+        run.log.requestStarted(attempt.region, attempt.batchId, attempt.retryCount, run.outstanding, run.transmitting);
         listener.onRegionStarted(attempt.region);
         CompletableFuture<ArgusUploadClient.UploadResult> future = client.uploadAsync(attempt.region, attempt.batchId,
                 () -> post(() -> onBodySent(run, attempt)));
@@ -254,6 +262,7 @@ public final class UploadRunner {
             attempt.transmitting = false;
             run.transmitting--;
         }
+        run.log.requestFinished(attempt.region, result);
         if (run.cancelled || result == null) {
             pump(run);
             return;
@@ -279,6 +288,7 @@ public final class UploadRunner {
                 future.cancel(true);
             }
             running.set(false);
+            run.log.finish(succeededCount(), failCount.get(), true);
             listener.onFatalError("Upload rejected (HTTP " + result.statusCode() + ") - check the token. Stopping run.");
             return;
         }
@@ -291,7 +301,9 @@ public final class UploadRunner {
                         ? Math.min(result.retryAfterMillis(), MAX_RETRY_AFTER_MILLIS)
                         : RATE_LIMIT_BACKOFF_MILLIS;
                 run.gateUntil = Math.max(run.gateUntil, System.currentTimeMillis() + backoff);
+                run.log.paused(result.statusCode(), backoff);
             }
+            run.log.retrying(region, attempt.retryCount + 1, backoff);
             run.pendingRetries++;
             Attempt retry = new Attempt(region, attempt.batchId, attempt.retryCount + 1);
             schedule(() -> {
@@ -311,6 +323,7 @@ public final class UploadRunner {
                 ? result.ioError().getMessage()
                 : "HTTP " + result.statusCode() + (result.body() != null ? ": " + truncate(result.body()) : "");
         doneCount.incrementAndGet();
+        run.log.failed(region, reason);
         listener.onRegionFailed(region, reason, doneCount.get(), totalCount);
         pump(run);
     }
@@ -370,6 +383,7 @@ public final class UploadRunner {
         final String prefix;
         final Deque<Attempt> retries = new ArrayDeque<>();
         final Set<CompletableFuture<?>> flying = ConcurrentHashMap.newKeySet();
+        final UploadLog log;
         volatile boolean cancelled;
         boolean finished;
         boolean pumpScheduled;
@@ -379,9 +393,10 @@ public final class UploadRunner {
         int pendingRetries;
         long gateUntil;
 
-        Run(Deque<RegionFile> queue, String prefix) {
+        Run(Deque<RegionFile> queue, String prefix, UploadLog log) {
             this.queue = queue;
             this.prefix = prefix;
+            this.log = log;
         }
     }
 }

@@ -461,3 +461,6 @@ Use a scratch layer/token and a few dozen not-yet-uploaded regions.
       "Upload run finished" line.
 - [ ] Every region that reported done is in `argus-mapper-manifest.txt`; nothing appears twice.
 - [ ] A wrong token stops the run once with the "check the token" message, not once per file.
+- [ ] `argus-mapper-upload-log/` in the game folder has one `.log` per run; open the newest:
+      START/REPLY lines with timings, the summary at the end (regions/min, reply times),
+      and no token anywhere in it.

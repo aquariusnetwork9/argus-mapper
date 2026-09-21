@@ -9,11 +9,14 @@ import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class ArgusUploadClient {
 
@@ -40,11 +43,17 @@ public final class ArgusUploadClient {
                 .build();
     }
 
-    /** @param retryAfterMillis the server's {@code Retry-After} in milliseconds, or 0 if it sent none */
-    public record UploadResult(int statusCode, String body, IOException ioError, long retryAfterMillis) {
+    /**
+     * @param retryAfterMillis the server's {@code Retry-After} in milliseconds, or 0 if it sent none
+     * @param headers          the response headers, names to comma-joined values
+     * @param bodySentMillis   request start until the body was handed to the network, -1 if it never was
+     * @param totalMillis      request start until the reply (or failure)
+     */
+    public record UploadResult(int statusCode, String body, IOException ioError, long retryAfterMillis,
+                               Map<String, String> headers, long bodySentMillis, long totalMillis) {
 
         public UploadResult(int statusCode, String body, IOException ioError) {
-            this(statusCode, body, ioError, 0L);
+            this(statusCode, body, ioError, 0L, Map.of(), -1L, -1L);
         }
 
         public boolean success() {
@@ -96,6 +105,12 @@ public final class ArgusUploadClient {
      *                   before anything is sent, so callers must not depend on it firing.
      */
     public CompletableFuture<UploadResult> uploadAsync(RegionFile region, String batchId, Runnable onBodySent) {
+        long startedNanos = System.nanoTime();
+        AtomicLong sentNanos = new AtomicLong(-1);
+        Runnable bodySent = () -> {
+            sentNanos.compareAndSet(-1, System.nanoTime());
+            onBodySent.run();
+        };
         if (!CoordLimits.inRange(region.regionX(), region.regionZ())) {
             // Enforced here too, independent of XaeroScanner already filtering these
             // out - see CoordLimits. This is the only method that talks to the
@@ -128,7 +143,7 @@ public final class ArgusUploadClient {
             if (region.lastModifiedMillis() > 0) {
                 builder.header("X-Region-Modified", Long.toString(region.lastModifiedMillis()));
             }
-            request = builder.POST(new SentNotifier(HttpRequest.BodyPublishers.ofFile(region.path()), onBodySent)).build();
+            request = builder.POST(new SentNotifier(HttpRequest.BodyPublishers.ofFile(region.path()), bodySent)).build();
         } catch (Exception e) {
             // e.g. the region file vanished from disk between scan and upload - ofFile() checks
             // existence eagerly (a checked FileNotFoundException) rather than deferring to send
@@ -137,8 +152,12 @@ public final class ArgusUploadClient {
         }
         return http.sendAsync(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
                 .handle((response, throwable) -> {
+                    long totalMillis = (System.nanoTime() - startedNanos) / 1_000_000;
+                    long sent = sentNanos.get();
+                    long bodySentMillis = sent < 0 ? -1 : (sent - startedNanos) / 1_000_000;
                     if (throwable == null) {
-                        return new UploadResult(response.statusCode(), response.body(), null, retryAfterMillis(response));
+                        return new UploadResult(response.statusCode(), response.body(), null, retryAfterMillis(response),
+                                headersOf(response), bodySentMillis, totalMillis);
                     }
                     if (throwable instanceof CancellationException) {
                         // Our own UploadRunner.cancel() aborting this exact request - let it
@@ -148,7 +167,7 @@ public final class ArgusUploadClient {
                     }
                     Throwable cause = throwable instanceof CompletionException ? throwable.getCause() : throwable;
                     IOException ioError = cause instanceof IOException ie ? ie : new IOException(cause);
-                    return new UploadResult(-1, null, ioError);
+                    return new UploadResult(-1, null, ioError, 0L, Map.of(), bodySentMillis, totalMillis);
                 });
     }
 
@@ -160,6 +179,12 @@ public final class ArgusUploadClient {
                 return 0L;
             }
         }).orElse(0L);
+    }
+
+    private static Map<String, String> headersOf(HttpResponse<?> response) {
+        Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        response.headers().map().forEach((name, values) -> headers.put(name, String.join(", ", values)));
+        return headers;
     }
 
     private static String enc(String s) {
