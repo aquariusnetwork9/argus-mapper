@@ -1,5 +1,7 @@
 package tools.argus.uploader.core.bounty;
 
+import tools.argus.uploader.core.MiniJson;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;

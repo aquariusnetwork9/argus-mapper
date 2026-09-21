@@ -1,6 +1,7 @@
 package tools.argus.uploader.core.bounty;
 
 import org.junit.jupiter.api.Test;
+import tools.argus.uploader.core.MiniJson;
 
 import java.util.List;
 

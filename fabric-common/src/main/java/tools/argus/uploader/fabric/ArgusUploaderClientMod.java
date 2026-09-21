@@ -101,6 +101,7 @@ public final class ArgusUploaderClientMod implements ClientModInitializer {
         AutoUploads.register();
         AutoMapper.register();
         Bounty.register();
+        Waystones.register();
 
         // Drives NetherHighwayFilter's own geometry fetch (independent of ARD's reporter/HUD -
         // see that class's javadoc for why). Resolves the current ARD server id from whichever

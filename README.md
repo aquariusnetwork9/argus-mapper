@@ -125,6 +125,34 @@ public list: no token, no name, no position - nothing about you is sent. It stay
 in the Nether and the End, on other servers and in single-player. Needs Xaero's Minimap
 and World Map.
 
+### Waystone teleports
+Waystones are approved teleport points around the map. The **Waystones** tab lists them,
+nearest first, along with your balance, whether ARGUS's delivery bot is ready, and its
+cooldown. Each teleport costs one **Waystone token**, which you earn by uploading regions
+(the tab shows how many regions earn one).
+
+Click **Teleport** next to a waystone and confirm. ARGUS's bot then travels to that
+waystone; the tab (and chat) keep you posted - where you are in the line, when the bot is
+on its way. The moment the bot is ready at the waystone, **the mod sends the `/tpa` request
+to it for you**, and you're teleported once it accepts. You never have to type anything.
+
+You can also **see the waystones on Xaero's World Map**. Turn on **Show waystones on the
+Xaero map** and each waystone in the dimension you're in gets a purple marker named **ARGUS
+Waystone: <name>** (temporary, world map only). Right-click a marker and choose
+**Teleport to this Waystone (ARGUS)** for the same confirmation and the same teleport.
+
+Good to know: you need to be on the ARGUS server with your token set, and to have set your
+Minecraft username at map.argus.tools/my-tokens. Only one teleport can be in progress at a
+time, counted across the mod and the website, and your balance is the same in both. If the
+bot is offline the tab says so. `/argus waystone cancel` stops the mod watching a teleport
+(it stays queued with ARGUS).
+
+Nothing is fetched until you open the tab or turn on the map markers. Opening the tab
+downloads the public waystone list and the bot's status and asks ARGUS for your balance
+using your token; the markers only download the public list. Choosing a teleport sends your
+token and the waystone you picked. The only thing the mod ever types into chat for this is
+`/tpa` followed by the bot's player name.
+
 ### See what's happening
 Xaero's map colours regions as you look at it: a **red outline** for a blackzone,
 **amber** while a region is uploading, **green** once it's uploaded, and the aqua and
@@ -133,7 +161,7 @@ gold boxes for the bounty.
 ### The ARGUS screen
 Open it with `/argus gui`, the **ARGUS Menu** button on the pause screen, or a key you
 bind in Controls. Tabs: **General, Token, Servers, Blackzones, Stats, Uploads, Auto-map,
-Bounty, Road Dept.** and **API**. Everything in them does the same as the matching chat
+Bounty, Waystones, Road Dept.** and **API**. Everything in them does the same as the matching chat
 command. The Uploads tab shows the current run live - a progress bar, how many are
 done, waiting or failed - and holds the live and whole-map switches.
 
@@ -194,6 +222,7 @@ switches are never saved.
 | `/argus blackzone add\|list\|remove` | Manage blackzones. |
 | `/argus automap [start <minRX> <minRZ> <maxRX> <maxRZ>\|calibrate\|stop\|status]` | Fly a box of the map for you. |
 | `/argus bounty [on\|off\|refresh\|clear\|status\|go [2x\|nearest]]` | Show the bounty on the map; `go` flies to one and maps it. |
+| `/argus waystone [status\|refresh\|cancel]` | Waystone teleport status; the teleports themselves are started from the Waystones tab or the World Map. |
 | `/argus settoken` / `/argus setlayer` | Set your token and layer. |
 | `/argus server [list\|use\|add]` | Server detection and the server list. |
 | `/argus discord sethook\|test\|report` | Discord stats. |
@@ -212,6 +241,8 @@ for the full list). The ones people change:
 - `xaeroRootOverride` - point at the exact Xaero folder if the mod picks the wrong one.
 - `autoMapCruiseY`, `autoMapMaxSpeed`, `autoMapSpeed` - height and speeds for flights.
 - `bountyEnabled`, `bountyLimit` - the bounty switch and how many cells to show (50).
+- `waystoneMarkers` - show waystones on Xaero's World Map (off); `waystoneBotName` - only
+  needed if ARGUS doesn't tell the mod which player to `/tpa`.
 - `enableAddonApi`, `discordWebhookUrl`, `autoReportToDiscord`.
 
 Live and whole-map upload are deliberately not settings.
@@ -229,7 +260,7 @@ Live and whole-map upload are deliberately not settings.
 - **What's already uploaded** is remembered in `argus-mapper-manifest.txt`, so a big first
   upload can be split across sessions.
 - **Minecraft 26.2** has everything above except auto-map, the calibration flight, the
-  bounty, the Road Department tools, the distance-travelled stat and the real
+  bounty, waystone teleports, the Road Department tools, the distance-travelled stat and the real
   Nether-highway check (it leaves out Nether regions while the Nether gate is on). See
   [26.2/NOTES.md](26.2/NOTES.md).
 

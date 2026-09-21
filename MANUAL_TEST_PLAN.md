@@ -3,8 +3,8 @@
 The by-hand checklist for everything the automated tests can't reach: the parts of the
 mod that only run inside a real game client.
 
-**Status for the 1.0.0 release: every scenario below has been run by hand in a real
-1.21.11 client and passes (2026-09-21).**
+**Status for the 1.0.0 release: scenarios 1-20 have been run by hand in a real 1.21.11
+client and pass (2026-09-21). Scenario 21 (waystone teleports) is new and not yet run.**
 
 ## Prerequisites
 
@@ -512,3 +512,32 @@ Bounty on (scenario 19), Meteor Elytra Fly in Vanilla mode, an elytra, you in th
       Auto-Map (ARGUS)" appears, and only when the selection touches a box.
 - [x] GUI Bounty tab: "Map the 2x cell" / "Map the nearest" open the same popup; with no
       bounty loaded they say so instead.
+
+### 21. Waystone teleports
+
+A token set, your Minecraft username set at map.argus.tools/my-tokens, on 6b6t, a few
+Waystone tokens in your balance (see the Waystones tab), Xaero's Minimap and World Map.
+
+- [ ] GUI Waystones tab: opening it shows your username and balance, the bot's status
+      ("ready now" / "ready in Ns" / "offline") and the waystones nearest first, with their
+      dimension, coordinates and distance. The bot's countdown ticks down between refreshes.
+- [ ] Closing the tab stops the polling (no waystone/bot requests while it is closed and the
+      map markers are off).
+- [ ] "Show waystones on the Xaero map": purple "ARGUS Waystone: <name>" markers appear on the
+      World Map for the waystones in your current dimension, only on the world map, and swap
+      when you change dimension. Turning it off removes them.
+- [ ] Right-click a waystone marker on the World Map: "Teleport to this Waystone (ARGUS)" is in
+      its menu; ordinary waypoints don't have it.
+- [ ] Clicking Teleport (tab or map) asks "Teleport to this waystone?" with the cost, your
+      balance and the bot's status. No: nothing happens, no token spent.
+- [ ] Yes: chat says the teleport is queued (balance drops by 1, on the website too). Progress
+      lines appear as it moves through queued / travelling / ready.
+- [ ] When the bot is ready the mod sends `/tpa <botname>` by itself (visible in chat), the bot
+      accepts, and you arrive at the waystone; chat says "Delivered".
+- [ ] If the server doesn't say the bot's name and `waystoneBotName` is empty: the mod tells
+      you it's ready and to send the /tpa yourself (nothing is typed for you).
+- [ ] Errors read clearly: no balance ("You don't have a Waystone token"), a teleport already
+      in progress, bot offline, no username set, wrong token.
+- [ ] `/argus waystone` shows the state; `/argus waystone cancel` stops watching mid-teleport.
+- [ ] Only `/tpa <name>` is ever sent to chat, and only once per request (a single re-send if it
+      is still ready after ~25 s).
