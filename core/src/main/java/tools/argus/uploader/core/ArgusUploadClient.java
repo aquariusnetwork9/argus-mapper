@@ -9,6 +9,7 @@ import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.CancellationException;
@@ -38,7 +39,10 @@ public final class ArgusUploadClient {
     public ArgusUploadClient(ArgusConfig config, BlackzoneStore blackzoneStore) {
         this.config = config;
         this.blackzoneStore = blackzoneStore;
+        // One connection per request: several requests multiplexed on one HTTP/2 connection all failed
+        // together when it broke (TLS bad_record_mac / connection reset) in a heavy run.
         this.http = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
     }
@@ -66,6 +70,12 @@ public final class ArgusUploadClient {
 
         public boolean isRateLimited() {
             return ioError == null && statusCode == 429;
+        }
+
+        /** The server's global upload rate, as opposed to this token's own quota: no fault of the region, worth retrying shortly. */
+        public boolean isServerBusy() {
+            return isRateLimited() && (retryAfterMillis > 0
+                    || (body != null && body.toLowerCase(Locale.ROOT).contains("busy")));
         }
 
         public boolean isServerError() {
@@ -150,25 +160,35 @@ public final class ArgusUploadClient {
             // time.
             return CompletableFuture.completedFuture(new UploadResult(-1, null, new IOException(e)));
         }
-        return http.sendAsync(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
-                .handle((response, throwable) -> {
-                    long totalMillis = (System.nanoTime() - startedNanos) / 1_000_000;
-                    long sent = sentNanos.get();
-                    long bodySentMillis = sent < 0 ? -1 : (sent - startedNanos) / 1_000_000;
-                    if (throwable == null) {
-                        return new UploadResult(response.statusCode(), response.body(), null, retryAfterMillis(response),
-                                headersOf(response), bodySentMillis, totalMillis);
-                    }
-                    if (throwable instanceof CancellationException) {
-                        // Our own UploadRunner.cancel() aborting this exact request - let it
-                        // propagate as a cancellation rather than masking it as a normal
-                        // network failure the retry logic might otherwise act on.
-                        throw (CancellationException) throwable;
-                    }
-                    Throwable cause = throwable instanceof CompletionException ? throwable.getCause() : throwable;
-                    IOException ioError = cause instanceof IOException ie ? ie : new IOException(cause);
-                    return new UploadResult(-1, null, ioError, 0L, Map.of(), bodySentMillis, totalMillis);
-                });
+        CompletableFuture<HttpResponse<String>> exchange =
+                http.sendAsync(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        CompletableFuture<UploadResult> result = new CompletableFuture<>();
+        // Cancelling the returned future aborts the request itself, not just our view of it.
+        result.whenComplete((r, t) -> {
+            if (result.isCancelled()) {
+                exchange.cancel(true);
+            }
+        });
+        exchange.whenComplete((response, throwable) -> {
+            long totalMillis = (System.nanoTime() - startedNanos) / 1_000_000;
+            long sent = sentNanos.get();
+            long bodySentMillis = sent < 0 ? -1 : (sent - startedNanos) / 1_000_000;
+            if (throwable == null) {
+                result.complete(new UploadResult(response.statusCode(), response.body(), null, retryAfterMillis(response),
+                        headersOf(response), bodySentMillis, totalMillis));
+                return;
+            }
+            if (throwable instanceof CancellationException cancellation) {
+                // Our own cancel() aborting this exact request: propagate it as a cancellation rather
+                // than masking it as a network failure the retry logic might act on.
+                result.completeExceptionally(cancellation);
+                return;
+            }
+            Throwable cause = throwable instanceof CompletionException ? throwable.getCause() : throwable;
+            IOException ioError = cause instanceof IOException ie ? ie : new IOException(cause);
+            result.complete(new UploadResult(-1, null, ioError, 0L, Map.of(), bodySentMillis, totalMillis));
+        });
+        return result;
     }
 
     private static long retryAfterMillis(HttpResponse<?> response) {

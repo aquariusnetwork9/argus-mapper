@@ -131,6 +131,11 @@ public final class UploadTracker implements UploadProgressListener {
     }
 
     @Override
+    public void onNotice(String message) {
+        delegate.onNotice(message);
+    }
+
+    @Override
     public void onFatalError(String message) {
         delegate.onFatalError(message);
         fireChanged();

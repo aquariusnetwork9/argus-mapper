@@ -104,6 +104,9 @@ class UploadRunnerCancelTest {
             Thread.sleep(20);
         }
         assertFalse(runner.isRunning(), "cancel() should abort the in-flight request promptly, not wait out its full timeout/retries");
+        while (completions.get() == 0 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20);
+        }
         assertEquals(1, completions.get());
     }
 }

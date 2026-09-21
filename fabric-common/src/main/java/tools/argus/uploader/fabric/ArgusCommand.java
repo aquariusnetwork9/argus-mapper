@@ -637,6 +637,11 @@ final class ArgusCommand {
         }
 
         @Override
+        public void onNotice(String message) {
+            info(source, message);
+        }
+
+        @Override
         public void onFatalError(String message) {
             error(source, message);
         }

@@ -34,6 +34,10 @@ public interface UploadProgressListener {
 
     void onRegionFailed(RegionFile region, String reason, int done, int total);
 
+    /** Something worth telling the player that isn't a per-region result, e.g. the server asking us to slow down. */
+    default void onNotice(String message) {
+    }
+
     void onFatalError(String message);
 
     void onComplete(int succeeded, int failed);

@@ -123,9 +123,9 @@ public final class UploadLog {
                 + (headers.length() > 0 ? " headers[" + headers + "]" : "") + " body=" + body);
     }
 
-    synchronized void paused(int statusCode, long millis) {
+    synchronized void paused(int statusCode, long millis, int openLimit) {
         pauses++;
-        line("PAUSE", "HTTP " + statusCode + ": holding new requests for " + millis + "ms");
+        line("PAUSE", "HTTP " + statusCode + ": holding new requests for " + millis + "ms, open limit now " + openLimit);
     }
 
     synchronized void retrying(RegionFile region, int nextAttempt, long backoffMillis) {

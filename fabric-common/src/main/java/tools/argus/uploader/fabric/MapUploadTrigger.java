@@ -178,6 +178,11 @@ public final class MapUploadTrigger {
         }
 
         @Override
+        public void onNotice(String message) {
+            feedback(client, message);
+        }
+
+        @Override
         public void onFatalError(String message) {
             feedback(client, message);
         }

@@ -12,6 +12,7 @@ import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -27,6 +28,7 @@ class UploadRunnerConcurrencyTest {
 
     private HttpServer server;
     private ExecutorService serverThreads;
+    private final List<Path> scratch = new ArrayList<>();
 
     @AfterEach
     void stopServer() {
@@ -35,6 +37,13 @@ class UploadRunnerConcurrencyTest {
         }
         if (serverThreads != null) {
             serverThreads.shutdownNow();
+        }
+        for (Path dir : scratch) {
+            try (var files = Files.walk(dir)) {
+                files.sorted(java.util.Comparator.reverseOrder()).forEach(path -> path.toFile().delete());
+            } catch (IOException ignored) {
+                // best effort
+            }
         }
     }
 
@@ -85,11 +94,20 @@ class UploadRunnerConcurrencyTest {
         return regions;
     }
 
+    /** For tests that abort requests mid-send: those can hold their file open a moment on Windows, which would fail the temp dir cleanup. */
+    private Path scratchDir() throws IOException {
+        Path dir = Files.createTempDirectory("argus-runner-test");
+        scratch.add(dir);
+        return dir;
+    }
+
     private static final class Recorder implements UploadProgressListener {
         final AtomicInteger uploaded = new AtomicInteger();
         final AtomicInteger failed = new AtomicInteger();
         final AtomicInteger fatal = new AtomicInteger();
         final AtomicInteger completions = new AtomicInteger();
+        final List<String> notices = Collections.synchronizedList(new ArrayList<>());
+        final List<RegionFile> deferred = Collections.synchronizedList(new ArrayList<>());
         final CountDownLatch finished = new CountDownLatch(1);
         final CountDownLatch fatalSeen = new CountDownLatch(1);
 
@@ -105,6 +123,16 @@ class UploadRunnerConcurrencyTest {
         @Override
         public void onRegionFailed(RegionFile region, String reason, int done, int total) {
             failed.incrementAndGet();
+        }
+
+        @Override
+        public void onNotice(String message) {
+            notices.add(message);
+        }
+
+        @Override
+        public void onRegionDeferred(RegionFile region) {
+            deferred.add(region);
         }
 
         @Override
@@ -181,7 +209,78 @@ class UploadRunnerConcurrencyTest {
 
     @Test
     @Timeout(20)
-    void aRejectedTokenStopsTheWholeRunOnceWithoutCompleting(@TempDir Path dir) throws Exception {
+    void aBusyServerSlowsTheRunDownWithoutFailingRegions(@TempDir Path dir) throws Exception {
+        ArgusConfig config = serve((exchange, n) -> {
+            if (n <= 5) {
+                byte[] body = "{\"error\":\"server_busy\",\"message\":\"Server is at its global upload rate.\"}".getBytes();
+                exchange.sendResponseHeaders(429, body.length);
+                exchange.getResponseBody().write(body);
+                exchange.close();
+            } else {
+                reply(exchange, 200);
+            }
+        });
+        config.uploadConcurrency = 2;
+        config.maxRetries = 0;
+
+        Recorder recorder = new Recorder();
+        UploadRunner runner = new UploadRunner(new ArgusUploadClient(config), config,
+                UploadManifest.load(dir.resolve("manifest.txt")), recorder);
+
+        runner.start(regions(dir, 6), "busy-test");
+        assertTrue(recorder.finished.await(15, TimeUnit.SECONDS), "run should have finished");
+
+        assertEquals(6, recorder.uploaded.get());
+        assertEquals(0, recorder.failed.get(), "a busy server is not the region's fault, even with no retries allowed");
+        assertEquals(1, recorder.notices.size(), "the player is told once");
+        assertTrue(recorder.deferred.isEmpty());
+    }
+
+    @Test
+    @Timeout(20)
+    void hittingTheTokenQuotaStopsTheRunAndLeavesTheRestForLater(@TempDir Path dir) throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        ArgusConfig config = serve((exchange, n) -> {
+            requests.incrementAndGet();
+            if (n <= 3) {
+                reply(exchange, 200);
+            } else {
+                byte[] body = "Too many requests - try again later.".getBytes();
+                exchange.sendResponseHeaders(429, body.length);
+                exchange.getResponseBody().write(body);
+                exchange.close();
+            }
+        });
+        config.uploadConcurrency = 1;
+
+        Recorder recorder = new Recorder();
+        UploadManifest manifest = UploadManifest.load(dir.resolve("manifest.txt"));
+        UploadRunner runner = new UploadRunner(new ArgusUploadClient(config), config, manifest, recorder);
+        List<RegionFile> regions = regions(dir, 12);
+
+        runner.start(regions, "quota-test");
+        assertTrue(recorder.finished.await(15, TimeUnit.SECONDS), "run should have finished");
+
+        assertEquals(3, recorder.uploaded.get());
+        assertEquals(0, recorder.failed.get(), "regions the quota stopped are not failures");
+        assertEquals(9, recorder.deferred.size(), "everything not sent is handed back");
+        assertTrue(requests.get() <= 3 + 4, "no more requests after the quota than were already open: " + requests.get());
+        assertEquals(1, recorder.notices.size());
+        assertTrue(recorder.notices.get(0).contains("limit"), recorder.notices.get(0));
+        assertEquals(1, recorder.completions.get());
+        int unrecorded = 0;
+        for (RegionFile region : regions) {
+            if (UploadManifest.load(dir.resolve("manifest.txt")).needsUpload(region, false)) {
+                unrecorded++;
+            }
+        }
+        assertEquals(9, unrecorded, "the unsent regions stay eligible for the next run");
+    }
+
+    @Test
+    @Timeout(20)
+    void aRejectedTokenStopsTheWholeRunOnceWithoutCompleting() throws Exception {
+        Path dir = scratchDir();
         ArgusConfig config = serve((exchange, n) -> reply(exchange, 401));
         config.uploadConcurrency = 3;
 
@@ -189,7 +288,8 @@ class UploadRunnerConcurrencyTest {
         UploadRunner runner = new UploadRunner(new ArgusUploadClient(config), config,
                 UploadManifest.load(dir.resolve("manifest.txt")), recorder);
 
-        runner.start(regions(dir, 10), "auth-test");
+        List<RegionFile> regions = regions(dir, 10);
+        runner.start(regions, "auth-test");
         assertTrue(recorder.fatalSeen.await(10, TimeUnit.SECONDS), "the rejection should have been reported");
         Thread.sleep(500);
 
@@ -201,7 +301,8 @@ class UploadRunnerConcurrencyTest {
 
     @Test
     @Timeout(20)
-    void cancelWithSeveralRequestsInFlightCompletesExactlyOnce(@TempDir Path dir) throws Exception {
+    void cancelWithSeveralRequestsInFlightCompletesExactlyOnce() throws Exception {
+        Path dir = scratchDir();
         CountDownLatch severalSeen = new CountDownLatch(3);
         ArgusConfig config = serve((exchange, n) -> {
             severalSeen.countDown();
@@ -214,7 +315,8 @@ class UploadRunnerConcurrencyTest {
         UploadRunner runner = new UploadRunner(new ArgusUploadClient(config), config,
                 UploadManifest.load(dir.resolve("manifest.txt")), recorder);
 
-        runner.start(regions(dir, 10), "cancel-many-test");
+        List<RegionFile> regions = regions(dir, 10);
+        runner.start(regions, "cancel-many-test");
         assertTrue(severalSeen.await(5, TimeUnit.SECONDS), "requests should have overlapped");
         runner.cancel();
 

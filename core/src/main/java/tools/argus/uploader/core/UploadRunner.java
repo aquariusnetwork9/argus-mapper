@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -11,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -25,13 +27,21 @@ import java.util.function.Predicate;
  * next region starts then, without waiting for the server to finish processing the previous one -
  * and at most four times that many requests are open awaiting a reply. All bookkeeping (manifest,
  * counters, listener calls) happens on the single executor thread; only the HTTP calls overlap.
+ *
+ * <p>The server pushes back in two ways. "Busy" (its global upload rate) is not the region's
+ * fault: the number of open requests is halved, new ones wait a short jittered moment, and the
+ * region is tried again without using up its retries; the number creeps back up on successes.
+ * Any other 429 is the per-token quota: the run stops, and what wasn't sent is left for a later run.
  */
 public final class UploadRunner {
 
     private static final int OUTSTANDING_PER_SLOT = 4;
     private static final long RETRY_BACKOFF_MILLIS = 6_000L;
-    private static final long RATE_LIMIT_BACKOFF_MILLIS = 10_000L;
+    private static final long BUSY_BACKOFF_MILLIS = 1_000L;
+    private static final long MAX_BUSY_BACKOFF_MILLIS = 8_000L;
     private static final long MAX_RETRY_AFTER_MILLIS = 120_000L;
+    private static final long DECREASE_COOLDOWN_MILLIS = 1_000L;
+    private static final int MAX_BUSY_RETRIES = 60;
 
     private final ArgusUploadClient client;
     private final ArgusConfig config;
@@ -165,7 +175,7 @@ public final class UploadRunner {
                 + " maxPerBatch=" + config.maxPerBatch + " maxRetries=" + config.maxRetries + " endpoint=" + config.apiBaseUrl
                 + "\nfound=" + found.size() + " alreadyUploaded=" + filtered.alreadyUploaded() + " tooLarge=" + filtered.tooLarge()
                 + " blackzoned=" + filtered.excludedByBlackzone() + " heldForMapping=" + filtered.held());
-        Run run = new Run(new ArrayDeque<>(toUpload), runIdPrefix, log);
+        Run run = new Run(new ArrayDeque<>(toUpload), runIdPrefix, log, slots() * OUTSTANDING_PER_SLOT);
         totalCount = toUpload.size();
         doneCount.set(0);
         failCount.set(0);
@@ -179,8 +189,8 @@ public final class UploadRunner {
         if (run.finished) {
             return;
         }
-        int slots = Math.max(1, Math.min(config.uploadConcurrency, ArgusConfig.MAX_UPLOAD_CONCURRENCY));
-        while (!run.cancelled && run.transmitting < slots && run.outstanding < slots * OUTSTANDING_PER_SLOT) {
+        int slots = slots();
+        while (!run.cancelled && !run.stopping && run.transmitting < slots && run.outstanding < openLimit(run)) {
             long now = System.currentTimeMillis();
             if (now < run.gateUntil) {
                 schedulePump(run, run.gateUntil - now);
@@ -198,13 +208,43 @@ public final class UploadRunner {
             }
             launch(run, next);
         }
-        boolean drained = run.queue.isEmpty() && run.retries.isEmpty() && run.pendingRetries == 0;
-        if (run.outstanding == 0 && (run.cancelled || drained)) {
+        boolean drained = run.queue.isEmpty() && run.retries.isEmpty() && run.waiting.isEmpty();
+        if (run.outstanding == 0 && (run.cancelled || run.stopping || drained)) {
             run.finished = true;
-            running.set(false);
+            if (run.stopping && !run.cancelled) {
+                releaseUnsent(run);
+            }
             run.log.finish(succeededCount(), failCount.get(), run.cancelled);
+            running.set(false);
             listener.onComplete(succeededCount(), failCount.get());
         }
+    }
+
+    private int slots() {
+        return Math.max(1, Math.min(config.uploadConcurrency, ArgusConfig.MAX_UPLOAD_CONCURRENCY));
+    }
+
+    private int openLimit(Run run) {
+        return Math.max(1, (int) Math.min(run.limit, slots() * OUTSTANDING_PER_SLOT));
+    }
+
+    /** Hands everything the quota stopped from being sent back as "left for later", unrecorded so a later run sends it. */
+    private void releaseUnsent(Run run) {
+        List<RegionFile> unsent = new ArrayList<>(run.bounced);
+        for (Attempt attempt : run.retries) {
+            unsent.add(attempt.region);
+        }
+        for (Attempt attempt : run.waiting) {
+            unsent.add(attempt.region);
+        }
+        unsent.addAll(run.queue);
+        for (RegionFile region : unsent) {
+            listener.onRegionDeferred(region);
+            totalCount--;
+        }
+        run.log.note("QUOTA", unsent.size() + " region(s) left for a later run");
+        listener.onNotice("The server's upload limit was reached after " + succeededCount() + " region(s); "
+                + unsent.size() + " are left for next time. Try again in about 10 minutes.");
     }
 
     private void dropUnready(Run run) {
@@ -236,6 +276,9 @@ public final class UploadRunner {
         CompletableFuture<ArgusUploadClient.UploadResult> future = client.uploadAsync(attempt.region, attempt.batchId,
                 () -> post(() -> onBodySent(run, attempt)));
         run.flying.add(future);
+        if (run.cancelled) {
+            future.cancel(true);
+        }
         // whenComplete can run on whichever thread the HTTP client finishes the request on - hop
         // back onto the executor so every decision below still happens on one thread.
         future.whenComplete((result, throwable) -> post(() -> {
@@ -276,6 +319,8 @@ public final class UploadRunner {
                 listener.onRegionFailed(region, "uploaded but failed to record in manifest: " + e.getMessage(), doneCount.get(), totalCount);
             }
             doneCount.incrementAndGet();
+            run.consecutiveBusy = 0;
+            run.limit = Math.min(slots() * OUTSTANDING_PER_SLOT, run.limit + 1.0 / Math.max(1.0, run.limit));
             listener.onRegionUploaded(region, doneCount.get(), totalCount);
             pump(run);
             return;
@@ -293,27 +338,34 @@ public final class UploadRunner {
             return;
         }
 
+        if (result.isRateLimited() && !result.isServerBusy()) {
+            run.stopping = true;
+            run.bounced.add(region);
+            run.log.note("QUOTA", region.filename() + " refused: " + truncate(String.valueOf(result.body())));
+            pump(run);
+            return;
+        }
+
+        if (result.isServerBusy() && attempt.busyCount < MAX_BUSY_RETRIES) {
+            easeOff(run, result);
+            run.retries.add(new Attempt(region, attempt.batchId, attempt.retryCount, attempt.busyCount + 1));
+            pump(run);
+            return;
+        }
+
         boolean retryable = result.isServerError() || result.isRateLimited() || result.ioError() != null;
         if (retryable && attempt.retryCount < config.maxRetries) {
-            long backoff = RETRY_BACKOFF_MILLIS;
-            if (result.isRateLimited()) {
-                backoff = result.retryAfterMillis() > 0
-                        ? Math.min(result.retryAfterMillis(), MAX_RETRY_AFTER_MILLIS)
-                        : RATE_LIMIT_BACKOFF_MILLIS;
-                run.gateUntil = Math.max(run.gateUntil, System.currentTimeMillis() + backoff);
-                run.log.paused(result.statusCode(), backoff);
-            }
-            run.log.retrying(region, attempt.retryCount + 1, backoff);
-            run.pendingRetries++;
-            Attempt retry = new Attempt(region, attempt.batchId, attempt.retryCount + 1);
+            run.log.retrying(region, attempt.retryCount + 1, RETRY_BACKOFF_MILLIS);
+            Attempt retry = new Attempt(region, attempt.batchId, attempt.retryCount + 1, attempt.busyCount);
+            run.waiting.add(retry);
             schedule(() -> {
                 if (run.finished) {
                     return;
                 }
-                run.pendingRetries--;
+                run.waiting.remove(retry);
                 run.retries.add(retry);
                 pump(run);
-            }, backoff);
+            }, RETRY_BACKOFF_MILLIS);
             pump(run);
             return;
         }
@@ -326,6 +378,30 @@ public final class UploadRunner {
         run.log.failed(region, reason);
         listener.onRegionFailed(region, reason, doneCount.get(), totalCount);
         pump(run);
+    }
+
+    /** One "busy" event halves the open-request limit and holds new requests briefly; the several replies of one burst count once. */
+    private void easeOff(Run run, ArgusUploadClient.UploadResult result) {
+        long now = System.currentTimeMillis();
+        long delay;
+        if (result.retryAfterMillis() > 0) {
+            delay = Math.min(result.retryAfterMillis(), MAX_RETRY_AFTER_MILLIS);
+        } else {
+            int exponent = Math.min(Math.max(run.consecutiveBusy - 1, 0), 3);
+            delay = Math.min(MAX_BUSY_BACKOFF_MILLIS, BUSY_BACKOFF_MILLIS << exponent)
+                    + ThreadLocalRandom.current().nextLong(500);
+        }
+        if (now - run.lastDecrease >= DECREASE_COOLDOWN_MILLIS) {
+            run.limit = Math.max(1.0, run.limit / 2);
+            run.lastDecrease = now;
+            run.consecutiveBusy++;
+            run.log.paused(result.statusCode(), delay, openLimit(run));
+        }
+        run.gateUntil = Math.max(run.gateUntil, now + delay);
+        if (!run.busyNoticed) {
+            run.busyNoticed = true;
+            listener.onNotice("The server is at its upload rate, so uploads are slowing down. Nothing is lost.");
+        }
     }
 
     /** {@code doneCount} is every *resolved* attempt (success or failure combined, used for the
@@ -368,12 +444,18 @@ public final class UploadRunner {
         final RegionFile region;
         final String batchId;
         final int retryCount;
+        final int busyCount;
         boolean transmitting;
 
         Attempt(RegionFile region, String batchId, int retryCount) {
+            this(region, batchId, retryCount, 0);
+        }
+
+        Attempt(RegionFile region, String batchId, int retryCount, int busyCount) {
             this.region = region;
             this.batchId = batchId;
             this.retryCount = retryCount;
+            this.busyCount = busyCount;
         }
     }
 
@@ -382,21 +464,28 @@ public final class UploadRunner {
         final Deque<RegionFile> queue;
         final String prefix;
         final Deque<Attempt> retries = new ArrayDeque<>();
+        final Set<Attempt> waiting = new LinkedHashSet<>();
+        final List<RegionFile> bounced = new ArrayList<>();
         final Set<CompletableFuture<?>> flying = ConcurrentHashMap.newKeySet();
         final UploadLog log;
         volatile boolean cancelled;
         boolean finished;
+        boolean stopping;
         boolean pumpScheduled;
+        boolean busyNoticed;
         int dispatched;
         int transmitting;
         int outstanding;
-        int pendingRetries;
+        int consecutiveBusy;
+        double limit;
         long gateUntil;
+        long lastDecrease;
 
-        Run(Deque<RegionFile> queue, String prefix, UploadLog log) {
+        Run(Deque<RegionFile> queue, String prefix, UploadLog log, double limit) {
             this.queue = queue;
             this.prefix = prefix;
             this.log = log;
+            this.limit = limit;
         }
     }
 }

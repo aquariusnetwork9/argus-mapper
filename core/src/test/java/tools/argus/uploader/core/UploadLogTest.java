@@ -48,7 +48,7 @@ class UploadLogTest {
             exchange.getResponseHeaders().add("X-RateLimit-Remaining", Integer.toString(200 - n));
             exchange.getResponseHeaders().add("X-Unrelated", "boring");
             byte[] body = ("{\"queued\":" + n + "}").getBytes();
-            exchange.sendResponseHeaders(n == 5 ? 429 : 200, body.length);
+            exchange.sendResponseHeaders(n == 5 ? 500 : 200, body.length);
             exchange.getResponseBody().write(body);
             exchange.close();
         });
@@ -97,7 +97,7 @@ class UploadLogTest {
         String log = readOnlyLog(logDir);
         assertTrue(log.contains("START"), log);
         assertTrue(log.contains("status=200"), log);
-        assertTrue(log.contains("status=429"), log);
+        assertTrue(log.contains("status=500"), log);
         assertTrue(log.contains("sent="), log);
         assertTrue(log.toLowerCase().contains("x-ratelimit-remaining="), "rate limit headers are logged: " + log);
         assertTrue(log.contains("{\"queued\":"), "the reply body is logged: " + log);
