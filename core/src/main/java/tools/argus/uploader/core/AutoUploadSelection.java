@@ -9,7 +9,7 @@ import java.util.List;
 public final class AutoUploadSelection {
 
     /** How long a region file must go unwritten before live upload treats it as finished. */
-    public static final long QUIET_MILLIS = 10 * 60_000L;
+    public static final long QUIET_MILLIS = 3 * 60_000L;
 
     private AutoUploadSelection() {
     }

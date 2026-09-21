@@ -93,7 +93,7 @@ turns them on for you.
   regions Xaero has saved since you turned it on that are new or changed since
   their last upload; a changed region replaces its older copy. A region Xaero
   is still writing to (you're mapping it right now) is held back until its file
-  has been untouched for 10 minutes and is checked again just before it is
+  has been untouched for 3 minutes and is checked again just before it is
   sent, so half-finished regions don't go up and one region is never re-sent
   more than once per cycle. You don't need a dedicated mapping session: any
   region that changes while you play is picked up once you've moved on. The
@@ -177,7 +177,7 @@ it. Overworld and End only. Nothing about it is saved, and it always asks first.
   live, manual, from the map, and again in the network call itself. A half-mapped
   region would otherwise replace a fuller copy on the server. It's session-only and
   cleared when the run ends; live upload then sends them after its usual
-  10-minute quiet period. Starting a flight also cancels a live upload run that is
+  3-minute quiet period. Starting a flight also cancels a live upload run that is
   in flight.
 - **Stops by itself** if you teleport, change dimension, take damage, stop
   gliding, run low on elytra durability, switch Elytra Fly off or disconnect.

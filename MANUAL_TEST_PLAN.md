@@ -299,7 +299,7 @@ use a region you're happy to have replaced.
 
 Use a scratch layer/token you are happy to upload to; the first cycle is 3-10
 minutes after turning it on, but a region only goes once its file has been untouched for
-10 minutes, so map a little, move on, and leave it running for 15-20 minutes.
+3 minutes, so map a little, move on, and leave it running for 10-15 minutes.
 
 - [ ] `/argus live on` (or the toggle) opens its own popup; **Cancel** leaves it
       off. **Turn on** starts it and the Uploads tab shows "On - next upload in
@@ -309,7 +309,7 @@ minutes after turning it on, but a region only goes once its file has been untou
       "nothing new to send" when nothing changed.
 - [ ] Keep walking through a region until the cycle fires: that region is not
       sent ("holding back N still being mapped" / "held for next time"), and goes
-      out on a later cycle once you have left it for 10 minutes.
+      out on a later cycle once you have left it for 3 minutes.
 - [ ] Disconnect: live upload is off on rejoin. Restart: off.
 - [ ] `/argus live off` stops it and cancels a run in progress.
 
@@ -446,7 +446,7 @@ Use a scratch layer/token, with some regions in the box already mapped and not y
 - [ ] `/argus automap stop` (or a finished run): the message disappears and a manual
       upload includes the regions again.
 - [ ] Turning live upload on during a flight: its cycle skips the held regions and
-      says so; after the run, the next cycle sends them once they have been quiet 10 minutes.
+      says so; after the run, the next cycle sends them once they have been quiet 3 minutes.
 - [ ] The same holds during a calibration flight, along its line.
 
 ### 18. Overlapping uploads

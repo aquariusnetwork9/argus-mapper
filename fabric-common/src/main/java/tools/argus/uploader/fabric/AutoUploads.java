@@ -45,7 +45,7 @@ public final class AutoUploads {
     private static final String LIVE_BODY = "ARGUS Mapper will upload the regions you explore from now on, "
             + "automatically, about every 3-10 minutes (random), until you turn it off, disconnect or close "
             + "the game. A changed region replaces its older copy. "
-            + "Regions still being written to wait until they have been untouched for 10 minutes. "
+            + "Regions still being written to wait until they have been untouched for 3 minutes. "
             + "Blackzones still apply.\n\n"
             + "If you teleport (128+ blocks in one step, or a dimension change) and land outside that "
             + "upload area, it pauses, blackzones about " + TeleportBlackzones.RADIUS_REGIONS * 512
