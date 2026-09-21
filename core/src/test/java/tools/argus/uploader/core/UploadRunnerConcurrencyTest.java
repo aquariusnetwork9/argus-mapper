@@ -236,45 +236,113 @@ class UploadRunnerConcurrencyTest {
         assertTrue(recorder.deferred.isEmpty());
     }
 
+    private static void quotaReply(HttpExchange exchange) throws IOException {
+        byte[] body = "Too many requests - try again later.".getBytes();
+        exchange.sendResponseHeaders(429, body.length);
+        exchange.getResponseBody().write(body);
+        exchange.close();
+    }
+
+    private static int unrecorded(Path dir, List<RegionFile> regions) throws IOException {
+        int count = 0;
+        UploadManifest manifest = UploadManifest.load(dir.resolve("manifest.txt"));
+        for (RegionFile region : regions) {
+            if (manifest.needsUpload(region, false)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     @Test
     @Timeout(20)
-    void hittingTheTokenQuotaStopsTheRunAndLeavesTheRestForLater(@TempDir Path dir) throws Exception {
-        AtomicInteger requests = new AtomicInteger();
+    void hittingThePerUserLimitPausesThenResumesByItself(@TempDir Path dir) throws Exception {
         ArgusConfig config = serve((exchange, n) -> {
-            requests.incrementAndGet();
-            if (n <= 3) {
-                reply(exchange, 200);
+            if (n >= 4 && n <= 7) {
+                quotaReply(exchange);
             } else {
-                byte[] body = "Too many requests - try again later.".getBytes();
-                exchange.sendResponseHeaders(429, body.length);
-                exchange.getResponseBody().write(body);
-                exchange.close();
+                reply(exchange, 200);
             }
         });
         config.uploadConcurrency = 1;
 
         Recorder recorder = new Recorder();
-        UploadManifest manifest = UploadManifest.load(dir.resolve("manifest.txt"));
-        UploadRunner runner = new UploadRunner(new ArgusUploadClient(config), config, manifest, recorder);
+        UploadRunner runner = new UploadRunner(new ArgusUploadClient(config), config,
+                UploadManifest.load(dir.resolve("manifest.txt")), recorder);
+        runner.setQuotaTiming(200, 200, 60_000);
         List<RegionFile> regions = regions(dir, 12);
 
-        runner.start(regions, "quota-test");
+        runner.start(regions, "quota-resume-test");
+        assertTrue(recorder.finished.await(15, TimeUnit.SECONDS), "run should have finished");
+
+        assertEquals(12, recorder.uploaded.get());
+        assertEquals(0, recorder.failed.get(), "the limit is not the regions' fault");
+        assertTrue(recorder.deferred.isEmpty(), "nothing is given up on when the limit clears");
+        assertFalse(recorder.notices.isEmpty());
+        assertTrue(recorder.notices.get(0).contains("resumes by itself"), recorder.notices.get(0));
+        assertEquals(0, unrecorded(dir, regions));
+        assertEquals(1, recorder.completions.get());
+    }
+
+    @Test
+    @Timeout(20)
+    void aLimitThatNeverClearsEndsTheRunAndLeavesTheRestForLater(@TempDir Path dir) throws Exception {
+        ArgusConfig config = serve((exchange, n) -> {
+            if (n <= 3) {
+                reply(exchange, 200);
+            } else {
+                quotaReply(exchange);
+            }
+        });
+        config.uploadConcurrency = 1;
+
+        Recorder recorder = new Recorder();
+        UploadRunner runner = new UploadRunner(new ArgusUploadClient(config), config,
+                UploadManifest.load(dir.resolve("manifest.txt")), recorder);
+        runner.setQuotaTiming(50, 50, 400);
+        List<RegionFile> regions = regions(dir, 12);
+
+        runner.start(regions, "quota-giveup-test");
         assertTrue(recorder.finished.await(15, TimeUnit.SECONDS), "run should have finished");
 
         assertEquals(3, recorder.uploaded.get());
-        assertEquals(0, recorder.failed.get(), "regions the quota stopped are not failures");
+        assertEquals(0, recorder.failed.get());
         assertEquals(9, recorder.deferred.size(), "everything not sent is handed back");
-        assertTrue(requests.get() <= 3 + 4, "no more requests after the quota than were already open: " + requests.get());
-        assertEquals(1, recorder.notices.size());
-        assertTrue(recorder.notices.get(0).contains("limit"), recorder.notices.get(0));
+        assertTrue(recorder.notices.get(recorder.notices.size() - 1).contains("didn't clear"), recorder.notices.toString());
+        assertEquals(9, unrecorded(dir, regions), "the unsent regions stay eligible for the next run");
         assertEquals(1, recorder.completions.get());
-        int unrecorded = 0;
-        for (RegionFile region : regions) {
-            if (UploadManifest.load(dir.resolve("manifest.txt")).needsUpload(region, false)) {
-                unrecorded++;
-            }
+    }
+
+    @Test
+    @Timeout(20)
+    void nothingIsSentWhileWaitingOnTheLimitAndCancelEndsTheWait(@TempDir Path dir) throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        ArgusConfig config = serve((exchange, n) -> {
+            requests.incrementAndGet();
+            quotaReply(exchange);
+        });
+        config.uploadConcurrency = 1;
+
+        Recorder recorder = new Recorder();
+        UploadRunner runner = new UploadRunner(new ArgusUploadClient(config), config,
+                UploadManifest.load(dir.resolve("manifest.txt")), recorder);
+
+        runner.start(regions(dir, 5), "quota-cancel-test");
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (recorder.notices.isEmpty() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20);
         }
-        assertEquals(9, unrecorded, "the unsent regions stay eligible for the next run");
+        assertFalse(recorder.notices.isEmpty(), "the wait should have been announced");
+        Thread.sleep(300);
+        int before = requests.get();
+        Thread.sleep(700);
+        assertEquals(before, requests.get(), "no requests while waiting for the limit to reset");
+        assertTrue(runner.isRunning());
+
+        runner.cancel();
+        assertTrue(recorder.finished.await(3, TimeUnit.SECONDS), "cancel should end the wait at once");
+        assertEquals(1, recorder.completions.get());
+        assertFalse(runner.isRunning());
     }
 
     @Test

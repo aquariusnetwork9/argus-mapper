@@ -26,6 +26,10 @@ public interface UploadProgressListener {
     default void onHeldForMapping(int held) {
     }
 
+    /** A region that was sent but has to be sent again later (the server's limit), so it is queued once more. */
+    default void onRegionRequeued(RegionFile region) {
+    }
+
     /** A queued region the run dropped just before sending; it is not recorded, so a later run picks it up. */
     default void onRegionDeferred(RegionFile region) {
     }

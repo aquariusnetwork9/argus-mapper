@@ -96,6 +96,15 @@ public final class UploadTracker implements UploadProgressListener {
     }
 
     @Override
+    public void onRegionRequeued(RegionFile region) {
+        synchronized (rows) {
+            rows.put(region, new RowState(region, Status.QUEUED, null, 0L, 0L));
+        }
+        delegate.onRegionRequeued(region);
+        fireChanged();
+    }
+
+    @Override
     public void onRegionDeferred(RegionFile region) {
         synchronized (rows) {
             rows.remove(region);

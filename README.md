@@ -384,9 +384,13 @@ minutes. The server pushes back in two ways:
 - **"Server busy"** (the overall rate): the number of open requests is halved, new
   ones wait a moment, and the region is retried without using up its retries. The
   number climbs back as uploads succeed. You get one chat line the first time.
-- **The per-user limit** (any other `429`): the run stops, the regions not yet sent
-  stay in the queue for a later run (they aren't marked failed), and you are told
-  to try again in about 10 minutes.
+- **The per-user limit** (any other `429`): the run pauses and heals itself. Nothing
+  is marked failed; every region goes back in the queue and you get a chat line
+  saying it will resume. After 30 seconds it sends a single probe request, and
+  then one every minute, until one gets through - then the run carries on at
+  full speed. `/argus cancel` ends the wait at once. If the limit hasn't cleared
+  after 30 minutes the run ends and the unsent regions wait for a later run. Only
+  requests that belong to a run you started are ever sent while waiting.
 
 A new `batchId` starts every `maxPerBatch` regions (default 200).
 Already-uploaded regions are tracked in `<config dir>/argus-mapper-manifest.txt`,

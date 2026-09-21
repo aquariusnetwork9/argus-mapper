@@ -31,7 +31,10 @@ import java.util.function.Predicate;
  * <p>The server pushes back in two ways. "Busy" (its global upload rate) is not the region's
  * fault: the number of open requests is halved, new ones wait a short jittered moment, and the
  * region is tried again without using up its retries; the number creeps back up on successes.
- * Any other 429 is the per-token quota: the run stops, and what wasn't sent is left for a later run.
+ * Any other 429 is the per-token quota: new requests stop, everything unsent goes back in the queue,
+ * and after a wait one probe request tests whether the quota has reset - if so the run carries on by
+ * itself, if not it waits again. If it hasn't cleared after half an hour the run ends and what wasn't
+ * sent is left for a later run. Cancelling ends the wait at once.
  */
 public final class UploadRunner {
 
@@ -42,6 +45,9 @@ public final class UploadRunner {
     private static final long MAX_RETRY_AFTER_MILLIS = 120_000L;
     private static final long DECREASE_COOLDOWN_MILLIS = 1_000L;
     private static final int MAX_BUSY_RETRIES = 60;
+    private static final long QUOTA_FIRST_WAIT_MILLIS = 30_000L;
+    private static final long QUOTA_PROBE_INTERVAL_MILLIS = 60_000L;
+    private static final long QUOTA_GIVE_UP_MILLIS = 30 * 60_000L;
 
     private final ArgusUploadClient client;
     private final ArgusConfig config;
@@ -59,12 +65,21 @@ public final class UploadRunner {
     private volatile int totalCount = 0;
     private volatile Predicate<RegionFile> readyCheck = region -> true;
     private volatile Run current;
+    private volatile long quotaFirstWaitMillis = QUOTA_FIRST_WAIT_MILLIS;
+    private volatile long quotaProbeIntervalMillis = QUOTA_PROBE_INTERVAL_MILLIS;
+    private volatile long quotaGiveUpMillis = QUOTA_GIVE_UP_MILLIS;
 
     public UploadRunner(ArgusUploadClient client, ArgusConfig config, UploadManifest manifest, UploadProgressListener listener) {
         this.client = client;
         this.config = config;
         this.manifest = manifest;
         this.listener = listener;
+    }
+
+    void setQuotaTiming(long firstWaitMillis, long probeIntervalMillis, long giveUpMillis) {
+        this.quotaFirstWaitMillis = firstWaitMillis;
+        this.quotaProbeIntervalMillis = probeIntervalMillis;
+        this.quotaGiveUpMillis = giveUpMillis;
     }
 
     public boolean isRunning() {
@@ -192,19 +207,35 @@ public final class UploadRunner {
         int slots = slots();
         while (!run.cancelled && !run.stopping && run.transmitting < slots && run.outstanding < openLimit(run)) {
             long now = System.currentTimeMillis();
+            if (run.quotaMode) {
+                if (run.probing) {
+                    break;
+                }
+                if (now - run.quotaSince > quotaGiveUpMillis) {
+                    run.stopping = true;
+                    break;
+                }
+                if (now < run.quotaResumeAt) {
+                    schedulePump(run, run.quotaResumeAt - now);
+                    break;
+                }
+                Attempt probe = nextAttempt(run);
+                if (probe == null) {
+                    break;
+                }
+                probe.probe = true;
+                run.probing = true;
+                run.log.note("QUOTA", "probing with " + probe.region.filename());
+                launch(run, probe);
+                break;
+            }
             if (now < run.gateUntil) {
                 schedulePump(run, run.gateUntil - now);
                 break;
             }
-            Attempt next = run.retries.poll();
+            Attempt next = nextAttempt(run);
             if (next == null) {
-                dropUnready(run);
-                RegionFile region = run.queue.poll();
-                if (region == null) {
-                    break;
-                }
-                int batch = run.dispatched++ / Math.max(1, config.maxPerBatch);
-                next = new Attempt(region, run.prefix + "-" + batch, 0);
+                break;
             }
             launch(run, next);
         }
@@ -220,6 +251,20 @@ public final class UploadRunner {
         }
     }
 
+    private Attempt nextAttempt(Run run) {
+        Attempt retry = run.retries.poll();
+        if (retry != null) {
+            return retry;
+        }
+        dropUnready(run);
+        RegionFile region = run.queue.poll();
+        if (region == null) {
+            return null;
+        }
+        int batch = run.dispatched++ / Math.max(1, config.maxPerBatch);
+        return new Attempt(region, run.prefix + "-" + batch, 0);
+    }
+
     private int slots() {
         return Math.max(1, Math.min(config.uploadConcurrency, ArgusConfig.MAX_UPLOAD_CONCURRENCY));
     }
@@ -228,9 +273,9 @@ public final class UploadRunner {
         return Math.max(1, (int) Math.min(run.limit, slots() * OUTSTANDING_PER_SLOT));
     }
 
-    /** Hands everything the quota stopped from being sent back as "left for later", unrecorded so a later run sends it. */
+    /** Hands everything the quota kept from being sent back as "left for later", unrecorded so a later run sends it. */
     private void releaseUnsent(Run run) {
-        List<RegionFile> unsent = new ArrayList<>(run.bounced);
+        List<RegionFile> unsent = new ArrayList<>();
         for (Attempt attempt : run.retries) {
             unsent.add(attempt.region);
         }
@@ -242,9 +287,9 @@ public final class UploadRunner {
             listener.onRegionDeferred(region);
             totalCount--;
         }
-        run.log.note("QUOTA", unsent.size() + " region(s) left for a later run");
-        listener.onNotice("The server's upload limit was reached after " + succeededCount() + " region(s); "
-                + unsent.size() + " are left for next time. Try again in about 10 minutes.");
+        run.log.note("QUOTA", "gave up waiting; " + unsent.size() + " region(s) left for a later run");
+        listener.onNotice("The server's upload limit didn't clear for " + quotaGiveUpMillis / 60_000 + " minutes, so "
+                + unsent.size() + " region(s) are left for a later run.");
     }
 
     private void dropUnready(Run run) {
@@ -271,6 +316,7 @@ public final class UploadRunner {
         run.outstanding++;
         run.transmitting++;
         attempt.transmitting = true;
+        attempt.launchedAt = System.currentTimeMillis();
         run.log.requestStarted(attempt.region, attempt.batchId, attempt.retryCount, run.outstanding, run.transmitting);
         listener.onRegionStarted(attempt.region);
         CompletableFuture<ArgusUploadClient.UploadResult> future = client.uploadAsync(attempt.region, attempt.batchId,
@@ -312,6 +358,20 @@ public final class UploadRunner {
         }
 
         RegionFile region = attempt.region;
+        boolean quotaReply = result.isRateLimited() && !result.isServerBusy();
+        if (attempt.probe) {
+            run.probing = false;
+            if (!quotaReply) {
+                if (result.ioError() == null) {
+                    run.quotaMode = false;
+                    run.quotaClearedAt = System.currentTimeMillis();
+                    run.limit = Math.min(2.0, slots() * OUTSTANDING_PER_SLOT);
+                    run.log.note("QUOTA", "cleared after " + (System.currentTimeMillis() - run.quotaSince) / 1000 + "s");
+                } else {
+                    run.quotaResumeAt = System.currentTimeMillis() + quotaProbeIntervalMillis;
+                }
+            }
+        }
         if (result.success()) {
             try {
                 manifest.markUploaded(region);
@@ -338,10 +398,8 @@ public final class UploadRunner {
             return;
         }
 
-        if (result.isRateLimited() && !result.isServerBusy()) {
-            run.stopping = true;
-            run.bounced.add(region);
-            run.log.note("QUOTA", region.filename() + " refused: " + truncate(String.valueOf(result.body())));
+        if (quotaReply) {
+            waitForQuota(run, attempt, result);
             pump(run);
             return;
         }
@@ -378,6 +436,33 @@ public final class UploadRunner {
         run.log.failed(region, reason);
         listener.onRegionFailed(region, reason, doneCount.get(), totalCount);
         pump(run);
+    }
+
+    /** Puts the region back and holds new requests until a probe shows the per-user limit has reset. */
+    private void waitForQuota(Run run, Attempt attempt, ArgusUploadClient.UploadResult result) {
+        long now = System.currentTimeMillis();
+        boolean episodeStart = !run.quotaMode;
+        if (episodeStart && attempt.launchedAt < run.quotaClearedAt) {
+            // sent before a probe showed the limit had reset, so this refusal is old news
+            run.retries.add(new Attempt(attempt.region, attempt.batchId, attempt.retryCount, attempt.busyCount));
+            listener.onRegionRequeued(attempt.region);
+            return;
+        }
+        if (episodeStart) {
+            run.quotaMode = true;
+            run.quotaSince = now;
+            run.quotaResumeAt = now + quotaFirstWaitMillis;
+        } else if (attempt.probe) {
+            run.quotaResumeAt = now + quotaProbeIntervalMillis;
+        }
+        run.retries.add(new Attempt(attempt.region, attempt.batchId, attempt.retryCount, attempt.busyCount));
+        listener.onRegionRequeued(attempt.region);
+        run.log.note("QUOTA", attempt.region.filename() + " refused: " + truncate(String.valueOf(result.body())));
+        if (episodeStart) {
+            int remaining = run.queue.size() + run.retries.size() + run.waiting.size() + run.outstanding;
+            listener.onNotice("The server's per-user upload limit was reached with about " + remaining
+                    + " region(s) left to send. Waiting for it to reset; the run resumes by itself (/argus cancel stops it).");
+        }
     }
 
     /** One "busy" event halves the open-request limit and holds new requests briefly; the several replies of one burst count once. */
@@ -446,6 +531,8 @@ public final class UploadRunner {
         final int retryCount;
         final int busyCount;
         boolean transmitting;
+        boolean probe;
+        long launchedAt;
 
         Attempt(RegionFile region, String batchId, int retryCount) {
             this(region, batchId, retryCount, 0);
@@ -465,7 +552,6 @@ public final class UploadRunner {
         final String prefix;
         final Deque<Attempt> retries = new ArrayDeque<>();
         final Set<Attempt> waiting = new LinkedHashSet<>();
-        final List<RegionFile> bounced = new ArrayList<>();
         final Set<CompletableFuture<?>> flying = ConcurrentHashMap.newKeySet();
         final UploadLog log;
         volatile boolean cancelled;
@@ -473,6 +559,8 @@ public final class UploadRunner {
         boolean stopping;
         boolean pumpScheduled;
         boolean busyNoticed;
+        boolean quotaMode;
+        boolean probing;
         int dispatched;
         int transmitting;
         int outstanding;
@@ -480,6 +568,9 @@ public final class UploadRunner {
         double limit;
         long gateUntil;
         long lastDecrease;
+        long quotaSince;
+        long quotaResumeAt;
+        long quotaClearedAt;
 
         Run(Deque<RegionFile> queue, String prefix, UploadLog log, double limit) {
             this.queue = queue;

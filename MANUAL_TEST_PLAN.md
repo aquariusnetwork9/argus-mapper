@@ -463,8 +463,10 @@ Use a scratch layer/token and a few dozen not-yet-uploaded regions.
 - [ ] A wrong token stops the run once with the "check the token" message, not once per file.
 - [ ] A big enough backlog to hit "server busy": one chat line about slowing down, the log's
       PAUSE lines show the open limit halving and creeping back, and no region fails for it.
-- [ ] Hitting the per-user limit stops the run with the "upload limit was reached" line, the
-      unsent regions are not marked failed, and a later run sends them.
+- [ ] Hitting the per-user limit prints one "per-user upload limit was reached ... resumes by
+      itself" line; nothing is sent for the next ~30 s, then one probe per minute (see the log's
+      QUOTA lines); when it clears the run continues without you doing anything and no region
+      fails. `/argus cancel` while waiting ends the run at once.
 - [ ] `argus-mapper-upload-log/` in the game folder has one `.log` per run; open the newest:
       START/REPLY lines with timings, the summary at the end (regions/min, reply times),
       and no token anywhere in it.
