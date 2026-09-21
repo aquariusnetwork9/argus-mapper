@@ -447,3 +447,17 @@ Use a scratch layer/token, with some regions in the box already mapped and not y
 - [ ] Turning live upload on during a flight: its cycle skips the held regions and
       says so; after the run, the next cycle sends them once they have been quiet 10 minutes.
 - [ ] The same holds during a calibration flight, along its line.
+
+### 18. Overlapping uploads
+
+Use a scratch layer/token and a few dozen not-yet-uploaded regions.
+
+- [ ] `/argus upload`: several regions show as uploading at once in the Uploads tab
+      ("Uploading: ... (+N more in flight)"), and the run finishes in a fraction of the
+      old ~15 s per region. Note the total time for the run.
+- [ ] Set "Uploads at once" (GUI, General tab) or `uploadConcurrency` to 1 and repeat
+      with another batch: it should be slower but still overlap the server's replies.
+- [ ] `/argus cancel` mid-run stops it within a few seconds and prints one
+      "Upload run finished" line.
+- [ ] Every region that reported done is in `argus-mapper-manifest.txt`; nothing appears twice.
+- [ ] A wrong token stops the run once with the "check the token" message, not once per file.

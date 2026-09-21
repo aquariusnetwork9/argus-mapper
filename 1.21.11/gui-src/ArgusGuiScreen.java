@@ -190,8 +190,8 @@ public final class ArgusGuiScreen extends Screen {
         y = toggleRow(y, "Re-upload regions that changed", cfg.reuploadChangedRegions, v -> cfg.reuploadChangedRegions = v);
         y += 4;
 
-        y = sliderRow(y, "Pace between uploads", 1000, 10000, 500, cfg.paceMillis > Integer.MAX_VALUE ? 10000 : (int) cfg.paceMillis,
-                v -> v + " ms", v -> cfg.paceMillis = v);
+        y = sliderRow(y, "Uploads at once", 1, ArgusConfig.MAX_UPLOAD_CONCURRENCY, 1, cfg.uploadConcurrency,
+                v -> Integer.toString(v), v -> cfg.uploadConcurrency = v);
         y = sliderRow(y, "Regions per batch", 10, 200, 10, cfg.maxPerBatch, v -> Integer.toString(v), v -> cfg.maxPerBatch = v);
 
         int saveY = panelY + panelH - PAD - ROW_H;
@@ -432,13 +432,16 @@ public final class ArgusGuiScreen extends Screen {
         int failed = 0;
         int queued = 0;
         String uploadingName = null;
+        int uploadingCount = 0;
         for (UploadTracker.RowState row : rows) {
             switch (row.status()) {
                 case DONE -> done++;
                 case FAILED -> failed++;
                 case QUEUED -> queued++;
-                // Runs are sequential (see UploadRunner) so at most one row is ever UPLOADING.
-                case UPLOADING -> uploadingName = row.region().filename();
+                case UPLOADING -> {
+                    uploadingCount++;
+                    uploadingName = row.region().filename();
+                }
             }
         }
         int resolved = done + failed;
@@ -468,7 +471,8 @@ public final class ArgusGuiScreen extends Screen {
             y += 12;
         }
         if (uploadingName != null) {
-            context.drawTextWithShadow(this.textRenderer, "Uploading: " + uploadingName, panelX + PAD, y, ACCENT);
+            context.drawTextWithShadow(this.textRenderer, "Uploading: " + uploadingName
+                    + (uploadingCount > 1 ? " (+" + (uploadingCount - 1) + " more in flight)" : ""), panelX + PAD, y, ACCENT);
         } else if (total > 0 && resolved == total) {
             context.drawTextWithShadow(this.textRenderer, "Run finished.", panelX + PAD, y, ACCENT);
         }

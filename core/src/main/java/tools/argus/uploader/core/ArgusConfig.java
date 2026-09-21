@@ -21,7 +21,10 @@ public final class ArgusConfig {
     // the current server. Defaults to true - "exclude when unsure" is the correct default, not
     // an opt-in. Does not affect overworld or end uploads.
     public boolean restrictNetherToHighways = true;
-    public long paceMillis = 3000L;
+    public static final int MAX_UPLOAD_CONCURRENCY = 8;
+
+    // Request bodies on the wire at once; a request stops counting once its body is sent, not when the server replies.
+    public int uploadConcurrency = 4;
     public int maxPerBatch = 200;
     public long maxFileSizeBytes = 10_000_000L;
     public int maxRetries = 3;
@@ -81,7 +84,7 @@ public final class ArgusConfig {
         cfg.xaeroRootOverride = p.getProperty("xaeroRootOverride", cfg.xaeroRootOverride);
         cfg.includeCaves = Boolean.parseBoolean(p.getProperty("includeCaves", String.valueOf(cfg.includeCaves)));
         cfg.restrictNetherToHighways = Boolean.parseBoolean(p.getProperty("restrictNetherToHighways", String.valueOf(cfg.restrictNetherToHighways)));
-        cfg.paceMillis = parseLong(p.getProperty("paceMillis"), cfg.paceMillis);
+        cfg.uploadConcurrency = (int) Math.max(1, Math.min(MAX_UPLOAD_CONCURRENCY, parseLong(p.getProperty("uploadConcurrency"), cfg.uploadConcurrency)));
         cfg.maxPerBatch = (int) parseLong(p.getProperty("maxPerBatch"), cfg.maxPerBatch);
         cfg.maxFileSizeBytes = parseLong(p.getProperty("maxFileSizeBytes"), cfg.maxFileSizeBytes);
         cfg.maxRetries = (int) parseLong(p.getProperty("maxRetries"), cfg.maxRetries);
@@ -108,7 +111,7 @@ public final class ArgusConfig {
         p.setProperty("xaeroRootOverride", xaeroRootOverride);
         p.setProperty("includeCaves", String.valueOf(includeCaves));
         p.setProperty("restrictNetherToHighways", String.valueOf(restrictNetherToHighways));
-        p.setProperty("paceMillis", String.valueOf(paceMillis));
+        p.setProperty("uploadConcurrency", String.valueOf(uploadConcurrency));
         p.setProperty("maxPerBatch", String.valueOf(maxPerBatch));
         p.setProperty("maxFileSizeBytes", String.valueOf(maxFileSizeBytes));
         p.setProperty("maxRetries", String.valueOf(maxRetries));

@@ -6,11 +6,14 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class ArgusUploadClient {
 
@@ -37,7 +40,13 @@ public final class ArgusUploadClient {
                 .build();
     }
 
-    public record UploadResult(int statusCode, String body, IOException ioError) {
+    /** @param retryAfterMillis the server's {@code Retry-After} in milliseconds, or 0 if it sent none */
+    public record UploadResult(int statusCode, String body, IOException ioError, long retryAfterMillis) {
+
+        public UploadResult(int statusCode, String body, IOException ioError) {
+            this(statusCode, body, ioError, 0L);
+        }
+
         public boolean success() {
             return ioError == null && statusCode / 100 == 2;
         }
@@ -77,6 +86,16 @@ public final class ArgusUploadClient {
      * treats as "stop the run", not as a per-region failure to record.
      */
     public CompletableFuture<UploadResult> uploadAsync(RegionFile region, String batchId) {
+        return uploadAsync(region, batchId, () -> {
+        });
+    }
+
+    /**
+     * @param onBodySent run once, when the whole request body has been handed to the network -
+     *                   before the server has replied. It is not called for a request refused
+     *                   before anything is sent, so callers must not depend on it firing.
+     */
+    public CompletableFuture<UploadResult> uploadAsync(RegionFile region, String batchId, Runnable onBodySent) {
         if (!CoordLimits.inRange(region.regionX(), region.regionZ())) {
             // Enforced here too, independent of XaeroScanner already filtering these
             // out - see CoordLimits. This is the only method that talks to the
@@ -101,7 +120,7 @@ public final class ArgusUploadClient {
                     + "&dimension=" + enc(region.dimension())
                     + "&batchId=" + enc(batchId);
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
-                    .timeout(Duration.ofSeconds(60))
+                    .timeout(Duration.ofSeconds(180))
                     .header("Authorization", "Bearer " + config.token)
                     .header("Content-Type", "application/octet-stream");
             // The zip's own entry time is a local-time DOS stamp with no time zone, so it can't be
@@ -109,7 +128,7 @@ public final class ArgusUploadClient {
             if (region.lastModifiedMillis() > 0) {
                 builder.header("X-Region-Modified", Long.toString(region.lastModifiedMillis()));
             }
-            request = builder.POST(HttpRequest.BodyPublishers.ofFile(region.path())).build();
+            request = builder.POST(new SentNotifier(HttpRequest.BodyPublishers.ofFile(region.path()), onBodySent)).build();
         } catch (Exception e) {
             // e.g. the region file vanished from disk between scan and upload - ofFile() checks
             // existence eagerly (a checked FileNotFoundException) rather than deferring to send
@@ -119,7 +138,7 @@ public final class ArgusUploadClient {
         return http.sendAsync(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
                 .handle((response, throwable) -> {
                     if (throwable == null) {
-                        return new UploadResult(response.statusCode(), response.body(), null);
+                        return new UploadResult(response.statusCode(), response.body(), null, retryAfterMillis(response));
                     }
                     if (throwable instanceof CancellationException) {
                         // Our own UploadRunner.cancel() aborting this exact request - let it
@@ -133,7 +152,62 @@ public final class ArgusUploadClient {
                 });
     }
 
+    private static long retryAfterMillis(HttpResponse<?> response) {
+        return response.headers().firstValue("Retry-After").map(value -> {
+            try {
+                return Math.max(0L, Long.parseLong(value.trim()) * 1000L);
+            } catch (NumberFormatException e) {
+                return 0L;
+            }
+        }).orElse(0L);
+    }
+
     private static String enc(String s) {
         return URLEncoder.encode(s, StandardCharsets.UTF_8);
+    }
+
+    /** Fires {@code onSent} once when the wrapped body has been fully published; a resent body (the client retrying a dead connection) fires it only the first time. */
+    private static final class SentNotifier implements HttpRequest.BodyPublisher {
+        private final HttpRequest.BodyPublisher inner;
+        private final Runnable onSent;
+        private final AtomicBoolean fired = new AtomicBoolean();
+
+        SentNotifier(HttpRequest.BodyPublisher inner, Runnable onSent) {
+            this.inner = inner;
+            this.onSent = onSent;
+        }
+
+        @Override
+        public long contentLength() {
+            return inner.contentLength();
+        }
+
+        @Override
+        public void subscribe(Flow.Subscriber<? super ByteBuffer> subscriber) {
+            inner.subscribe(new Flow.Subscriber<>() {
+                @Override
+                public void onSubscribe(Flow.Subscription subscription) {
+                    subscriber.onSubscribe(subscription);
+                }
+
+                @Override
+                public void onNext(ByteBuffer item) {
+                    subscriber.onNext(item);
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    subscriber.onError(throwable);
+                }
+
+                @Override
+                public void onComplete() {
+                    subscriber.onComplete();
+                    if (fired.compareAndSet(false, true)) {
+                        onSent.run();
+                    }
+                }
+            });
+        }
     }
 }

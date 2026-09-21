@@ -508,7 +508,7 @@ final class ArgusCommand {
         info(source, "layer=" + (c.layer.isBlank() ? "(not set)" : c.layer));
         info(source, "token=" + (c.token.isBlank() ? "(not set)" : "(set, hidden)"));
         info(source, "xaeroRootOverride=" + (c.xaeroRootOverride.isBlank() ? "(auto-detect)" : c.xaeroRootOverride));
-        info(source, "includeCaves=" + c.includeCaves + " paceMillis=" + c.paceMillis + " maxPerBatch=" + c.maxPerBatch);
+        info(source, "includeCaves=" + c.includeCaves + " uploadConcurrency=" + c.uploadConcurrency + " maxPerBatch=" + c.maxPerBatch);
         info(source, "restrictNetherToHighways=" + c.restrictNetherToHighways);
         return 1;
     }

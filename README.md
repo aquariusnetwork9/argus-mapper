@@ -374,12 +374,15 @@ loose, case-insensitive match against your current server or world.
 
 ### Upload rate limits
 
-The API allows 200 requests per 10 minutes, about one region every 3 seconds,
-and 200 regions per `batchId`. The mod sends one request at a time, waiting
-`paceMillis` (default 3000 ms) between them, which keeps you inside both limits,
-and starts a new `batchId` every `maxPerBatch` regions. Already-uploaded regions
-are tracked in `<config dir>/argus-mapper-manifest.txt`, so a big first upload
-can be split across sessions.
+The server queues and throttles what it receives, so the mod doesn't pace itself
+against a rate limit. It keeps up to `uploadConcurrency` files (default 4, at most
+8) going out at once and starts the next region as soon as a file has been sent,
+without waiting for the server to reply, with at most four times that many
+replies outstanding. A `429` makes the whole run pause for the server's
+`Retry-After` (10 s if it gives none) and retry. A new `batchId` starts every
+`maxPerBatch` regions (default 200). Already-uploaded regions are tracked in
+`<config dir>/argus-mapper-manifest.txt`, so a big first upload can be split
+across sessions.
 
 Every upload also carries `X-Region-Modified: <file modified time, UTC epoch
 ms>`, which the API uses to keep the newest copy (the zip's own timestamp has no

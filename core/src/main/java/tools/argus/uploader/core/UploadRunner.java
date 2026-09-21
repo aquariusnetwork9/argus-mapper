@@ -5,24 +5,33 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 /**
- * Sends region files to the ARGUS API one at a time, waiting
- * {@link ArgusConfig#paceMillis} between the end of one response and the
- * start of the next request (which keeps 200 requests comfortably inside
- * both the 200/10min rate limit and the ~1-per-3s pacing ask by
- * construction), rolling to a fresh batchId every
- * {@link ArgusConfig#maxPerBatch} regions.
+ * Sends region files to the ARGUS API with several requests overlapping, rolling to a fresh
+ * batchId every {@link ArgusConfig#maxPerBatch} regions.
+ *
+ * <p>At most {@link ArgusConfig#uploadConcurrency} request bodies are on the wire at once. A
+ * request stops counting against that as soon as its body has been handed to the network - the
+ * next region starts then, without waiting for the server to finish processing the previous one -
+ * and at most four times that many requests are open awaiting a reply. All bookkeeping (manifest,
+ * counters, listener calls) happens on the single executor thread; only the HTTP calls overlap.
  */
 public final class UploadRunner {
+
+    private static final int OUTSTANDING_PER_SLOT = 4;
+    private static final long RETRY_BACKOFF_MILLIS = 6_000L;
+    private static final long RATE_LIMIT_BACKOFF_MILLIS = 10_000L;
+    private static final long MAX_RETRY_AFTER_MILLIS = 120_000L;
 
     private final ArgusUploadClient client;
     private final ArgusConfig config;
@@ -34,15 +43,12 @@ public final class UploadRunner {
         return t;
     });
 
-    private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicInteger doneCount = new AtomicInteger(0);
     private final AtomicInteger failCount = new AtomicInteger(0);
     private volatile int totalCount = 0;
     private volatile Predicate<RegionFile> readyCheck = region -> true;
-    // The request currently in flight, if any - cancel() aborts this directly rather than only
-    // ever preventing the *next* one, so a slow/hanging request can't hold cancellation hostage.
-    private final AtomicReference<CompletableFuture<?>> inFlight = new AtomicReference<>();
+    private volatile Run current;
 
     public UploadRunner(ArgusUploadClient client, ArgusConfig config, UploadManifest manifest, UploadProgressListener listener) {
         this.client = client;
@@ -68,12 +74,17 @@ public final class UploadRunner {
         return totalCount;
     }
 
+    /** Aborts every request in flight rather than only stopping new ones, so a hanging request can't hold cancellation hostage. */
     public void cancel() {
-        cancelled.set(true);
-        CompletableFuture<?> current = inFlight.get();
-        if (current != null) {
-            current.cancel(true);
+        Run run = current;
+        if (run == null) {
+            return;
         }
+        run.cancelled = true;
+        for (CompletableFuture<?> future : run.flying) {
+            future.cancel(true);
+        }
+        post(() -> pump(run));
     }
 
     /**
@@ -150,75 +161,105 @@ public final class UploadRunner {
         }
         listener.onQueueBuilt(toUpload);
 
-        Deque<RegionFile> queue = new ArrayDeque<>(toUpload);
+        Run run = new Run(new ArrayDeque<>(toUpload), runIdPrefix);
         totalCount = toUpload.size();
         doneCount.set(0);
         failCount.set(0);
-        cancelled.set(false);
+        current = run;
         running.set(true);
 
-        executor.submit(() -> processNext(queue, runIdPrefix, 0, 0));
+        post(() -> pump(run));
     }
 
-    private void dropUnready(Deque<RegionFile> queue) {
-        while (!queue.isEmpty() && !readyCheck.test(queue.peek())) {
-            listener.onRegionDeferred(queue.poll());
+    private void pump(Run run) {
+        if (run.finished) {
+            return;
+        }
+        int slots = Math.max(1, Math.min(config.uploadConcurrency, ArgusConfig.MAX_UPLOAD_CONCURRENCY));
+        while (!run.cancelled && run.transmitting < slots && run.outstanding < slots * OUTSTANDING_PER_SLOT) {
+            long now = System.currentTimeMillis();
+            if (now < run.gateUntil) {
+                schedulePump(run, run.gateUntil - now);
+                break;
+            }
+            Attempt next = run.retries.poll();
+            if (next == null) {
+                dropUnready(run);
+                RegionFile region = run.queue.poll();
+                if (region == null) {
+                    break;
+                }
+                int batch = run.dispatched++ / Math.max(1, config.maxPerBatch);
+                next = new Attempt(region, run.prefix + "-" + batch, 0);
+            }
+            launch(run, next);
+        }
+        boolean drained = run.queue.isEmpty() && run.retries.isEmpty() && run.pendingRetries == 0;
+        if (run.outstanding == 0 && (run.cancelled || drained)) {
+            run.finished = true;
+            running.set(false);
+            listener.onComplete(succeededCount(), failCount.get());
+        }
+    }
+
+    private void dropUnready(Run run) {
+        while (!run.queue.isEmpty() && !readyCheck.test(run.queue.peek())) {
+            listener.onRegionDeferred(run.queue.poll());
             totalCount--;
         }
     }
 
-    private void processNext(Deque<RegionFile> queue, String runIdPrefix, int batchIndex, int inBatch) {
-        dropUnready(queue);
-        if (cancelled.get() || queue.isEmpty()) {
-            running.set(false);
-            listener.onComplete(succeededCount(), failCount.get());
+    private void schedulePump(Run run, long delayMillis) {
+        if (run.pumpScheduled) {
             return;
         }
-        if (inBatch >= config.maxPerBatch) {
-            batchIndex++;
-            inBatch = 0;
-        }
-        String batchId = runIdPrefix + "-" + batchIndex;
-        RegionFile region = queue.poll();
-
-        int currentBatch = batchIndex;
-        int currentInBatch = inBatch;
-        attempt(region, batchId, 0, () -> {
-            int nextInBatch = currentInBatch + 1;
-            int nextBatch = currentBatch;
-            executor.schedule(() -> processNext(queue, runIdPrefix, nextBatch, nextInBatch), config.paceMillis, TimeUnit.MILLISECONDS);
-        });
+        run.pumpScheduled = true;
+        schedule(() -> {
+            run.pumpScheduled = false;
+            pump(run);
+        }, delayMillis);
     }
 
-    private void attempt(RegionFile region, String batchId, int retryCount, Runnable onHandled) {
-        if (cancelled.get()) {
-            finishCancelled();
-            return;
-        }
-        listener.onRegionStarted(region);
-        CompletableFuture<ArgusUploadClient.UploadResult> future = client.uploadAsync(region, batchId);
-        inFlight.set(future);
-        // whenComplete's callback can run on whichever thread the HTTP client finishes the
-        // request on, not necessarily this executor's own thread - hop back onto it so every
-        // decision about retrying/proceeding/finishing still happens on one thread, same as
-        // before this was made async, rather than needing doneCount/failCount alone to carry
-        // all of the thread-safety burden.
-        future.whenComplete((result, throwable) ->
-                executor.execute(() -> onAttemptComplete(region, batchId, retryCount, onHandled, result)));
+    private void launch(Run run, Attempt attempt) {
+        run.outstanding++;
+        run.transmitting++;
+        attempt.transmitting = true;
+        listener.onRegionStarted(attempt.region);
+        CompletableFuture<ArgusUploadClient.UploadResult> future = client.uploadAsync(attempt.region, attempt.batchId,
+                () -> post(() -> onBodySent(run, attempt)));
+        run.flying.add(future);
+        // whenComplete can run on whichever thread the HTTP client finishes the request on - hop
+        // back onto the executor so every decision below still happens on one thread.
+        future.whenComplete((result, throwable) -> post(() -> {
+            run.flying.remove(future);
+            onAttemptComplete(run, attempt, result);
+        }));
     }
 
-    private void onAttemptComplete(RegionFile region, String batchId, int retryCount, Runnable onHandled,
-                                    ArgusUploadClient.UploadResult result) {
-        inFlight.set(null);
-        if (cancelled.get()) {
-            // Either cancelled between the request starting and finishing (result reflects
-            // whatever actually happened, and is still meaningful to log) or cancel() aborted
-            // this exact request (result is null - cancellation short-circuited it) - either
-            // way, stop rather than continue the queue or retry.
-            finishCancelled();
+    private void onBodySent(Run run, Attempt attempt) {
+        if (run.finished || !attempt.transmitting) {
+            return;
+        }
+        attempt.transmitting = false;
+        run.transmitting--;
+        pump(run);
+    }
+
+    private void onAttemptComplete(Run run, Attempt attempt, ArgusUploadClient.UploadResult result) {
+        if (run.finished) {
+            return;
+        }
+        run.outstanding--;
+        if (attempt.transmitting) {
+            attempt.transmitting = false;
+            run.transmitting--;
+        }
+        if (run.cancelled || result == null) {
+            pump(run);
             return;
         }
 
+        RegionFile region = attempt.region;
         if (result.success()) {
             try {
                 manifest.markUploaded(region);
@@ -227,20 +268,41 @@ public final class UploadRunner {
             }
             doneCount.incrementAndGet();
             listener.onRegionUploaded(region, doneCount.get(), totalCount);
-            onHandled.run();
+            pump(run);
             return;
         }
 
         if (result.isAuthError()) {
+            run.finished = true;
+            run.cancelled = true;
+            for (CompletableFuture<?> future : run.flying) {
+                future.cancel(true);
+            }
             running.set(false);
             listener.onFatalError("Upload rejected (HTTP " + result.statusCode() + ") - check the token. Stopping run.");
             return;
         }
 
         boolean retryable = result.isServerError() || result.isRateLimited() || result.ioError() != null;
-        if (retryable && retryCount < config.maxRetries) {
-            long backoff = result.isRateLimited() ? Math.max(10_000L, config.paceMillis * 3) : config.paceMillis * 2L;
-            executor.schedule(() -> attempt(region, batchId, retryCount + 1, onHandled), backoff, TimeUnit.MILLISECONDS);
+        if (retryable && attempt.retryCount < config.maxRetries) {
+            long backoff = RETRY_BACKOFF_MILLIS;
+            if (result.isRateLimited()) {
+                backoff = result.retryAfterMillis() > 0
+                        ? Math.min(result.retryAfterMillis(), MAX_RETRY_AFTER_MILLIS)
+                        : RATE_LIMIT_BACKOFF_MILLIS;
+                run.gateUntil = Math.max(run.gateUntil, System.currentTimeMillis() + backoff);
+            }
+            run.pendingRetries++;
+            Attempt retry = new Attempt(region, attempt.batchId, attempt.retryCount + 1);
+            schedule(() -> {
+                if (run.finished) {
+                    return;
+                }
+                run.pendingRetries--;
+                run.retries.add(retry);
+                pump(run);
+            }, backoff);
+            pump(run);
             return;
         }
 
@@ -250,12 +312,7 @@ public final class UploadRunner {
                 : "HTTP " + result.statusCode() + (result.body() != null ? ": " + truncate(result.body()) : "");
         doneCount.incrementAndGet();
         listener.onRegionFailed(region, reason, doneCount.get(), totalCount);
-        onHandled.run();
-    }
-
-    private void finishCancelled() {
-        running.set(false);
-        listener.onComplete(succeededCount(), failCount.get());
+        pump(run);
     }
 
     /** {@code doneCount} is every *resolved* attempt (success or failure combined, used for the
@@ -273,8 +330,58 @@ public final class UploadRunner {
         return s.length() > 200 ? s.substring(0, 200) + "..." : s;
     }
 
+    private void post(Runnable task) {
+        try {
+            executor.execute(task);
+        } catch (RejectedExecutionException ignored) {
+            // shut down
+        }
+    }
+
+    private void schedule(Runnable task, long delayMillis) {
+        try {
+            executor.schedule(task, delayMillis, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException ignored) {
+            // shut down
+        }
+    }
+
     public void shutdown() {
         cancel();
         executor.shutdown();
+    }
+
+    private static final class Attempt {
+        final RegionFile region;
+        final String batchId;
+        final int retryCount;
+        boolean transmitting;
+
+        Attempt(RegionFile region, String batchId, int retryCount) {
+            this.region = region;
+            this.batchId = batchId;
+            this.retryCount = retryCount;
+        }
+    }
+
+    /** One run's queue and counters; everything but {@code cancelled} and {@code flying} is touched only on the executor thread. */
+    private static final class Run {
+        final Deque<RegionFile> queue;
+        final String prefix;
+        final Deque<Attempt> retries = new ArrayDeque<>();
+        final Set<CompletableFuture<?>> flying = ConcurrentHashMap.newKeySet();
+        volatile boolean cancelled;
+        boolean finished;
+        boolean pumpScheduled;
+        int dispatched;
+        int transmitting;
+        int outstanding;
+        int pendingRetries;
+        long gateUntil;
+
+        Run(Deque<RegionFile> queue, String prefix) {
+            this.queue = queue;
+            this.prefix = prefix;
+        }
     }
 }

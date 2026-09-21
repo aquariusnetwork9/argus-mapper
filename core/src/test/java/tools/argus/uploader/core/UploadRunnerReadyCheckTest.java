@@ -49,7 +49,6 @@ class UploadRunnerReadyCheckTest {
         config.apiBaseUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/upload";
         config.token = "x";
         config.layer = "y";
-        config.paceMillis = 20;
         config.maxRetries = 0;
 
         RegionFile sent = writeRegion(dir, 0, 0);

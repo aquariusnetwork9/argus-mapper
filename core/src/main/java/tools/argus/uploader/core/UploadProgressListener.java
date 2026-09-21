@@ -17,9 +17,8 @@ public interface UploadProgressListener {
     default void onQueueBuilt(List<RegionFile> toUpload) {
     }
 
-    /** Fired right before the blocking network call for this region starts. Runs are sequential
-     *  (one region in flight at a time), so at most one region is ever "started" and not yet
-     *  resolved. */
+    /** Fired right before this region's request starts. Several regions can be started and not yet
+     *  resolved at once. */
     default void onRegionStarted(RegionFile region) {
     }
 

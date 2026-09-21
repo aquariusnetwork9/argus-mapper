@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Regression test for a real bug found live: when every region in a run failed, the chat summary
  * read e.g. "11 ok, 11 failed" - a run that failed end to end looked like a partial success.
- * Cause: {@link UploadRunner#processNext}/{@code finishCancelled} passed {@code doneCount}
+ * Cause: {@link UploadRunner} passed {@code doneCount}
  * (every *resolved* attempt, success or failure) as {@link UploadProgressListener#onComplete}'s
  * succeeded-count parameter, rather than actual successes - the two only coincide (both equal to
  * the failure count) when nothing succeeded, which is exactly what made the bug read as plausible
@@ -55,7 +55,6 @@ class UploadRunnerCompletionTest {
         config.apiBaseUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/upload";
         config.token = "x";
         config.layer = "y";
-        config.paceMillis = 50;
         config.maxRetries = 0;
 
         RegionFile a = writeRegion(dir, 0, 0);

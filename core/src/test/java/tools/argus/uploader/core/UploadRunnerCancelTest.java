@@ -62,7 +62,6 @@ class UploadRunnerCancelTest {
         config.apiBaseUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/upload";
         config.token = "x";
         config.layer = "y";
-        config.paceMillis = 100;
         config.maxRetries = 0;
 
         Path regionFile = dir.resolve("0_0.zip");

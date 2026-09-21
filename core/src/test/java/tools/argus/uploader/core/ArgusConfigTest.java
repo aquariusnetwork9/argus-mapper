@@ -34,7 +34,7 @@ class ArgusConfigTest {
         cfg.xaeroRootOverride = "C:\\some\\path";
         cfg.includeCaves = true;
         cfg.restrictNetherToHighways = false;
-        cfg.paceMillis = 4242;
+        cfg.uploadConcurrency = 6;
         cfg.maxPerBatch = 50;
         cfg.maxFileSizeBytes = 123456;
         cfg.maxRetries = 7;
@@ -52,7 +52,7 @@ class ArgusConfigTest {
         assertEquals("C:\\some\\path", reloaded.xaeroRootOverride);
         assertTrue(reloaded.includeCaves);
         assertFalse(reloaded.restrictNetherToHighways);
-        assertEquals(4242, reloaded.paceMillis);
+        assertEquals(6, reloaded.uploadConcurrency);
         assertEquals(50, reloaded.maxPerBatch);
         assertEquals(123456, reloaded.maxFileSizeBytes);
         assertEquals(7, reloaded.maxRetries);
