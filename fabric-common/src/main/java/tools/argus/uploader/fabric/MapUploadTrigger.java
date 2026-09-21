@@ -9,6 +9,7 @@ import tools.argus.uploader.core.ArgusUploadClient;
 import tools.argus.uploader.core.BlackzoneStore;
 import tools.argus.uploader.core.RegionBounds;
 import tools.argus.uploader.core.RegionFile;
+import tools.argus.uploader.core.UploadHold;
 import tools.argus.uploader.core.UploadManifest;
 import tools.argus.uploader.core.UploadProgressListener;
 import tools.argus.uploader.core.UploadRunner;
@@ -59,7 +60,19 @@ public final class MapUploadTrigger {
         if (resolved.isError()) {
             return Preview.error(resolved.error());
         }
-        List<RegionFile> scoped = resolved.regions().stream().filter(bounds::contains).toList();
+        UploadManifest manifest;
+        try {
+            manifest = UploadManifest.load(ArgusUploaderClientMod.manifestPath());
+        } catch (IOException e) {
+            return Preview.error("Couldn't read the upload manifest: " + e.getMessage());
+        }
+        // Counted the same way UploadRunner will, so the confirm popup states what will really be
+        // sent - not regions the run is about to skip as already uploaded.
+        List<RegionFile> scoped = resolved.regions().stream()
+                .filter(bounds::contains)
+                .filter(region -> manifest.needsUpload(region, config.reuploadChangedRegions))
+                .filter(region -> !UploadHold.isHeld(region))
+                .toList();
         long totalBytes = scoped.stream().mapToLong(RegionFile::sizeBytes).sum();
         return new Preview(scoped, totalBytes, null);
     }
@@ -148,6 +161,11 @@ public final class MapUploadTrigger {
         }
 
         @Override
+        public void onHeldForMapping(int held) {
+            feedback(client, held + " region(s) are still being auto-mapped, so they were left out.");
+        }
+
+        @Override
         public void onRegionUploaded(RegionFile region, int done, int total) {
             if (done % 10 == 0 || done == total) {
                 feedback(client, "Uploaded " + done + " / " + total + " (" + region.filename() + ", " + region.dimension() + ")");
@@ -157,6 +175,11 @@ public final class MapUploadTrigger {
         @Override
         public void onRegionFailed(RegionFile region, String reason, int done, int total) {
             feedback(client, "Failed " + region.filename() + " (" + region.dimension() + "): " + reason);
+        }
+
+        @Override
+        public void onNotice(String message) {
+            feedback(client, message);
         }
 
         @Override

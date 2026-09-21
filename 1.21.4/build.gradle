@@ -11,7 +11,7 @@ java {
 }
 
 // Shared logic, compiled directly into this module (no jar-in-jar): see
-// README.md "Design". core/ has zero Minecraft deps; fabric-common/ is the
+// README.md "How the code is organised". core/ has zero Minecraft deps; fabric-common/ is the
 // thin adapter shared identically across the 1.21.x builds.
 sourceSets {
     main {

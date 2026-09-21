@@ -22,6 +22,8 @@ class ArgusConfigTest {
         assertEquals("", cfg.token);
         assertEquals("", cfg.layer);
         assertFalse(cfg.isUsable());
+        assertFalse(cfg.reuploadChangedRegions, "re-uploading must be opt-in");
+        assertFalse(cfg.bountyEnabled, "the bounty fetch must be opt-in");
     }
 
     @Test
@@ -33,7 +35,7 @@ class ArgusConfigTest {
         cfg.xaeroRootOverride = "C:\\some\\path";
         cfg.includeCaves = true;
         cfg.restrictNetherToHighways = false;
-        cfg.paceMillis = 4242;
+        cfg.uploadConcurrency = 6;
         cfg.maxPerBatch = 50;
         cfg.maxFileSizeBytes = 123456;
         cfg.maxRetries = 7;
@@ -42,6 +44,10 @@ class ArgusConfigTest {
         cfg.discordApplicationId = "123";
         cfg.enableRichPresence = true;
         cfg.enableAddonApi = false;
+        cfg.reuploadChangedRegions = true;
+        cfg.bountyEnabled = true;
+        cfg.bountyUrl = "https://example.test/needed";
+        cfg.bountyLimit = 30;
         cfg.save(file);
 
         ArgusConfig reloaded = ArgusConfig.load(file);
@@ -50,7 +56,7 @@ class ArgusConfigTest {
         assertEquals("C:\\some\\path", reloaded.xaeroRootOverride);
         assertTrue(reloaded.includeCaves);
         assertFalse(reloaded.restrictNetherToHighways);
-        assertEquals(4242, reloaded.paceMillis);
+        assertEquals(6, reloaded.uploadConcurrency);
         assertEquals(50, reloaded.maxPerBatch);
         assertEquals(123456, reloaded.maxFileSizeBytes);
         assertEquals(7, reloaded.maxRetries);
@@ -59,6 +65,10 @@ class ArgusConfigTest {
         assertEquals("123", reloaded.discordApplicationId);
         assertTrue(reloaded.enableRichPresence);
         assertFalse(reloaded.enableAddonApi);
+        assertTrue(reloaded.reuploadChangedRegions);
+        assertTrue(reloaded.bountyEnabled);
+        assertEquals("https://example.test/needed", reloaded.bountyUrl);
+        assertEquals(30, reloaded.bountyLimit);
         assertTrue(reloaded.isUsable());
     }
 

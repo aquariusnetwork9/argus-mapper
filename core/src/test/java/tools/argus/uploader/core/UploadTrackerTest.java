@@ -73,6 +73,19 @@ class UploadTrackerTest {
     }
 
     @Test
+    void aDeferredRegionLeavesTheTable() {
+        UploadTracker tracker = new UploadTracker(new RecordingListener());
+        RegionFile a = region(0, 0);
+        RegionFile b = region(1, 0);
+        tracker.onQueueBuilt(List.of(a, b));
+
+        tracker.onRegionDeferred(a);
+
+        assertEquals(1, tracker.rows().size());
+        assertEquals(b, tracker.rows().get(0).region());
+    }
+
+    @Test
     void rowsTransitionThroughStartedThenResolved() {
         UploadTracker tracker = new UploadTracker(new RecordingListener());
         RegionFile a = region(0, 0);
@@ -127,5 +140,18 @@ class UploadTrackerTest {
 
     private static String errorOf(UploadTracker tracker, RegionFile region) {
         return tracker.rows().stream().filter(r -> r.region().equals(region)).findFirst().orElseThrow().error();
+    }
+
+    @Test
+    void aRequeuedRegionGoesBackToQueued() {
+        UploadTracker tracker = new UploadTracker(new RecordingListener());
+        RegionFile a = region(0, 0);
+        tracker.onQueueBuilt(List.of(a));
+        tracker.onRegionStarted(a);
+        assertEquals(UploadTracker.Status.UPLOADING, tracker.rows().get(0).status());
+
+        tracker.onRegionRequeued(a);
+
+        assertEquals(UploadTracker.Status.QUEUED, tracker.rows().get(0).status());
     }
 }

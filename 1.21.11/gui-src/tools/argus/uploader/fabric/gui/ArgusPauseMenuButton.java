@@ -9,7 +9,9 @@ import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.Text;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.argus.uploader.core.PauseButtonPlacement;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -23,61 +25,46 @@ import java.util.List;
  * supported mechanism for other mods to add widgets to a screen they don't own.
  *
  * <p>Since the real GridWidget instance isn't reachable, this doesn't become a row of that grid -
- * instead it reads the already-laid-out positions of the vanilla buttons (all public via
- * ClickableWidget's own getX/getY/getWidth/getHeight, no private access needed) and places
- * itself as one more row directly below the lowest one, matching that row's x/width so it lines
- * up with the rest of the stack. Falls back to a fixed bottom-left corner if that would run the
- * button off the bottom of the window (e.g. a short window with many rows already showing), or
- * if anything about the vanilla layout ever looks unexpected - this runs once per screen open, so
- * an uncaught exception here would break the pause menu's own Options/Quit buttons too, which is
- * worse than an oddly-placed ARGUS button.
+ * instead it reads the already-laid-out positions of every widget on the screen (all public via
+ * ClickableWidget's own getX/getY/getWidth/getHeight, no private access needed) and hands them to
+ * {@link tools.argus.uploader.core.PauseButtonPlacement}, which puts the button one row below the
+ * main button stack or, if that doesn't fit, in a free corner - never on top of another mod's
+ * widget (Simple World Downloader's bottom-left icon once did, see that class). A failure while
+ * placing falls back to a fixed corner - this runs once per screen open, so an uncaught exception
+ * here would break the pause menu's own Options/Quit buttons too, which is worse than an
+ * oddly-placed ARGUS button.
  */
 public final class ArgusPauseMenuButton {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("argus-mapper");
-    private static final int BUTTON_WIDTH = 100;
-    private static final int BUTTON_HEIGHT = 20;
-    private static final int MARGIN = 4;
-    private static final int ROW_GAP = 4;
-
     private ArgusPauseMenuButton() {
     }
 
     public static void register() {
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
             if (screen instanceof GameMenuScreen) {
-                addButton(screen, scaledHeight);
+                addButton(screen, scaledWidth, scaledHeight);
             }
         });
     }
 
-    private static void addButton(Screen screen, int scaledHeight) {
+    private static void addButton(Screen screen, int scaledWidth, int scaledHeight) {
         List<ClickableWidget> buttons = Screens.getButtons(screen);
-        int x = MARGIN;
-        int width = BUTTON_WIDTH;
-        int y = scaledHeight - MARGIN - BUTTON_HEIGHT;
+        PauseButtonPlacement.Rect spot;
         try {
-            int lowestBottom = 0;
+            List<PauseButtonPlacement.Rect> existing = new ArrayList<>();
             for (ClickableWidget widget : buttons) {
-                int bottom = widget.getY() + widget.getHeight();
-                if (bottom > lowestBottom) {
-                    lowestBottom = bottom;
-                    x = widget.getX();
-                    width = widget.getWidth();
-                }
+                existing.add(new PauseButtonPlacement.Rect(widget.getX(), widget.getY(), widget.getWidth(), widget.getHeight()));
             }
-            if (lowestBottom > 0 && lowestBottom + ROW_GAP + BUTTON_HEIGHT <= scaledHeight - MARGIN) {
-                y = lowestBottom + ROW_GAP;
-            }
+            spot = PauseButtonPlacement.place(existing, scaledWidth, scaledHeight);
         } catch (RuntimeException e) {
-            LOGGER.error("Failed to line up the ARGUS Menu button with the pause menu's own buttons "
+            LOGGER.error("Failed to place the ARGUS Menu button among the pause menu's other buttons "
                     + "- using a fixed corner instead", e);
-            x = MARGIN;
-            width = BUTTON_WIDTH;
-            y = scaledHeight - MARGIN - BUTTON_HEIGHT;
+            spot = new PauseButtonPlacement.Rect(4, scaledHeight - 24,
+                    PauseButtonPlacement.BUTTON_WIDTH, PauseButtonPlacement.BUTTON_HEIGHT);
         }
         buttons.add(ButtonWidget.builder(Text.literal("ARGUS Menu"), button -> GuiLauncher.open())
-                .dimensions(x, y, width, BUTTON_HEIGHT)
+                .dimensions(spot.x(), spot.y(), spot.width(), spot.height())
                 .build());
     }
 }

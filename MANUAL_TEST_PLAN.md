@@ -1,11 +1,10 @@
 # Manual test plan: blackzones, Uploads tab, Xaero map integration
 
-Covers everything in [PR #1](https://github.com/aquariusnetwork9/argus-mapper/pull/1)
-on this branch (`feature/blackzones-and-map-integration`) that could only be
-compile-verified, not run in a real client, from the environment that built
-it. Nothing here has been clicked through in a live game yet - that's what
-this document is for. Tick the checkboxes as you go and commit the result
-back to this branch so the PR reflects what's actually been verified.
+The by-hand checklist for everything the automated tests can't reach: the parts of the
+mod that only run inside a real game client.
+
+**Status for the 1.0.0 release: every scenario below has been run by hand in a real
+1.21.11 client and passes (2026-09-21).**
 
 ## Prerequisites
 
@@ -87,74 +86,75 @@ or by hand in `<instance>/config/argus-mapper.properties` before launch.
       code, so it likely also affects 1.21.4/1.21.8 even though neither
       has been run live yet (see their rows below) - the fix is in the
       shared `ArgusUploaderClientMod.java`, so it covers all three.
-- [ ] `/argus gui` opens the ARGUS panel; check the **Uploads** tab exists
+- [x] `/argus gui` opens the ARGUS panel; check the **Uploads** tab exists
       alongside the others.
-- [ ] Visually check the panel isn't clipped or overflowing at its current
+- [x] Visually check the panel isn't clipped or overflowing at its current
       width (widened 320px -> 360px on an estimate, not a real check - see
       `ArgusGuiScreen.PANEL_W`).
 
 ### 2. Loads cleanly *without* Xaero installed
 
-- [ ] Remove/disable Xaero's World Map, relaunch. Client should still
+- [x] Remove/disable Xaero's World Map, relaunch. Client should still
       reach the main menu with no crash - `ArgusXaeroMixinPlugin` should
       gate the mixin off (`FabricLoader.isModLoaded("xaeroworldmap")` ->
       false) and the rest of the mod should be entirely unaffected.
-- [ ] `/argus gui` still opens and works normally (minus anything
+- [x] `/argus gui` still opens and works normally (minus anything
       Xaero-dependent, which there isn't - the map integration only adds
       right-click options on Xaero's own screen).
 
 ### 3. Blackzone CLI
 
-- [ ] `/argus blackzone add test1 overworld 0 0 5 5 "test zone"` succeeds.
-- [ ] `/argus blackzone list` shows it, with the current layer marked
+- [x] `/argus blackzone add test1 overworld 0 0 5 5 "test zone"` succeeds.
+- [x] `/argus blackzone list` shows it, with the current layer marked
       ACTIVE.
-- [ ] `/argus scan` (with some region files present in range) reports a
+- [x] `/argus scan` (with some region files present in range) reports a
       "skipped N region(s) covered by a blackzone" line if any fall inside
       `0 0` to `5 5`.
-- [ ] `/argus blackzone remove test1` removes it; a re-scan no longer
-      excludes that area.
+- [x] `/argus blackzone remove test1` opens a confirm popup (nothing is
+      removed yet); **No** leaves it in `/argus blackzone list`, **Yes**
+      removes it and a re-scan no longer excludes that area.
 
 ### 4. Uploads tab live update
 
-- [ ] Start a real (or fake-token) upload via `/argus upload`.
-- [ ] Open `/argus gui` -> Uploads tab **while the run is in progress**.
+- [x] Start a real (or fake-token) upload via `/argus upload`.
+- [x] Open `/argus gui` -> Uploads tab **while the run is in progress**.
       Aggregate progress bar and Queued/Done/Failed counts should update
       live, frame to frame, without needing to close/reopen the tab.
-- [ ] Close the GUI screen (Esc) mid-run, reopen it - the tab should still
+- [x] Close the GUI screen (Esc) mid-run, reopen it - the tab should still
       reflect the run's current state (not reset), since it's backed by
       `UploadTracker` living on the background run, not the screen.
 
 ### 5. Xaero map integration - Mark Blackzone
 
-- [ ] Open Xaero's World Map. Drag a selection (Xaero's native
+- [x] Open Xaero's World Map. Drag a selection (Xaero's native
       rectangle-select).
-- [ ] Right-click inside the selection - confirm **both** "Upload This
+- [x] Right-click inside the selection - confirm **both** "Upload This
       Area to ARGUS" and "Mark ARGUS Blackzone" appear in the menu.
-- [ ] Click "Mark ARGUS Blackzone". Expect a chat message confirming the
+- [x] Click "Mark ARGUS Blackzone". Expect a chat message confirming the
       saved region-coordinate bounds and dimension.
-- [ ] `/argus blackzone list` shows the new entry with an id like
+- [x] `/argus blackzone list` shows the new entry with an id like
       `map-<timestamp>`.
 
 ### 6. Xaero map integration - Select Area to Upload
 
-- [ ] Drag a selection somewhere with real Xaero region data (i.e.
+- [x] Drag a selection somewhere with real Xaero region data (i.e.
       somewhere you've actually explored/mapped, so the scan finds
       something).
-- [ ] Right-click -> "Upload This Area to ARGUS". A confirm popup
+- [x] Right-click -> "Upload This Area to ARGUS". A confirm popup
       (`ConfirmScreen`) should appear over the map, stating a region count
       and approximate size.
-- [ ] Click **No** - should return cleanly to the exact same map screen
+- [x] Click **No** - should return cleanly to the exact same map screen
       (same zoom/position), with a `[ARGUS]` chat message confirming
       nothing was uploaded.
-- [ ] Repeat, click **Yes** - should see `[ARGUS]` chat feedback starting
+- [x] Repeat, click **Yes** - should see `[ARGUS]` chat feedback starting
       a real run (fails at the network step with a placeholder token,
       which is expected - see Config setup). Open the Uploads tab and
       confirm the run shows up there too.
-- [ ] Try triggering "Upload This Area to ARGUS" over a selection that's
+- [x] Try triggering "Upload This Area to ARGUS" over a selection that's
       entirely blackzoned or already-uploaded - should report "Nothing to
       upload in that selection" rather than opening a popup for zero
       regions.
-- [ ] While a run from step above (or `/argus upload`) is still in
+- [x] While a run from step above (or `/argus upload`) is still in
       progress, try "Upload This Area to ARGUS" again on a different
       selection - should refuse with "A run is already in progress"
       instead of starting a second concurrent run.
@@ -239,12 +239,116 @@ one. `UploadRunnerCancelTest` (core, real loopback `HttpServer` that never
 responds) is a permanent regression test for this - it can only pass if
 cancellation genuinely aborts the in-flight request, not just skips ahead.
 
-- [ ] Live re-check with a real slow/flaky connection: start an upload,
+- [x] Live re-check with a real slow/flaky connection: start an upload,
       `/argus cancel` mid-request, confirm `/argus status` flips to "No
       upload in progress" within a second or two rather than however long
       that one request would have taken.
 
-## Known gaps going in (not yet fixed, just documented)
+### 8. Removing a blackzone (confirm popup on every path)
+
+Add two blackzones first (e.g. one via the map, one via `/argus blackzone add`).
+
+- [x] GUI -> **Blackzones** tab lists both with dimension and region bounds.
+      Click **Remove** on one: a popup names it and its bounds. **No** returns
+      to the GUI with both still listed; **Yes** returns with one left and a
+      `[ARGUS]` chat line confirming.
+- [x] With 5+ blackzones, the tab pages (`<` / `>`) and removing the only entry
+      on the last page lands on a valid page rather than an empty one.
+- [x] Xaero map: select an area overlapping a blackzone, right-click - **Remove
+      ARGUS Blackzone** is offered. Select an area overlapping none - it is
+      not offered. Choosing it opens the same popup; **Yes** makes the red
+      outline disappear from the map immediately.
+- [x] `/argus blackzone remove <id>` from chat: the popup opens (after chat
+      closes), same **No**/**Yes** behavior. An unknown id reports an error
+      and opens nothing.
+- [x] A removed blackzone's area is scanned/uploadable again; a blackzone you
+      did not remove is still excluded.
+
+### 9. Re-uploading changed regions (`reuploadChangedRegions`)
+
+The ARGUS API replaces the stored region with a re-sent file, so this is safe
+to run against the real API - but it does overwrite the region's stored copy, so
+use a region you're happy to have replaced.
+
+- [x] Default config: after uploading a region, walk further into it so Xaero
+      re-saves it, then `/argus scan` / `/argus upload` - it is still counted
+      as "already uploaded" and not queued.
+- [x] Set `reuploadChangedRegions=true` (or the General-tab toggle), `/argus
+      reload`. The first run after updating an older manifest baselines old
+      entries and queues nothing extra; after walking further into an uploaded
+      region, the next run queues exactly that region.
+- [x] Blackzone that region, change it again: it is excluded (counted under
+      "excluded by blackzone"), not re-uploaded.
+- [x] `argus-mapper-manifest.txt` gains a `dimension|file<TAB>mtime` line for
+      the re-upload; "Regions contributed" on the Stats tab does not go up.
+
+### 10. Region distance limit and whole-map upload
+
+- [x] `/argus scan` with regions farther than 200 out on either axis: the
+      "skipped N region(s) outside the +/-200 region limit" line appears and
+      those files are not in the upload count.
+- [x] `/argus wholemap on` (or the Uploads-tab toggle) opens a popup saying the
+      limit will be lifted. **Cancel** leaves it off (toggle snaps back);
+      **Turn on** lifts it, and `/argus scan` no longer skips them.
+- [x] Blackzoned far regions are still excluded while it is on.
+- [x] Disconnect, and the switch is off again on rejoin. Same after a full
+      restart.
+
+### 11. Live upload
+
+Use a scratch layer/token you are happy to upload to; the first cycle is 3-10
+minutes after turning it on, but a region only goes once its file has been untouched for
+3 minutes, so map a little, move on, and leave it running for 10-15 minutes.
+
+- [x] `/argus live on` (or the toggle) opens its own popup; **Cancel** leaves it
+      off. **Turn on** starts it and the Uploads tab shows "On - next upload in
+      about N min". `/argus live` prints the same.
+- [x] After the delay, a `[ARGUS] Live upload: sending N region(s)` line appears
+      and only regions saved since turning it on (new or changed) are sent.
+      "nothing new to send" when nothing changed.
+- [x] Keep walking through a region until the cycle fires: that region is not
+      sent ("holding back N still being mapped" / "held for next time"), and goes
+      out on a later cycle once you have left it for 3 minutes.
+- [x] Disconnect: live upload is off on rejoin. Restart: off.
+- [x] `/argus live off` stops it and cancels a run in progress.
+
+### 12. Live upload pauses on far teleports
+
+The default area is 200 regions (about 102,400 blocks) each way, in every
+dimension, even with whole-map upload on.
+
+- [x] With live on, teleport to somewhere inside the area (`/home`, a portal,
+      `/tp`). Nothing pauses and no popup opens.
+- [x] Teleport to somewhere outside it (more than 102,400 blocks out). The
+      Uploads tab shows "Paused - teleported outside the upload area" at once
+      and a blackzone exists immediately (Blackzones tab: one for the dimension
+      you're in and one for the Overworld/Nether counterpart, ids `auto-...`).
+- [x] After about 5 seconds of no further jump (not during the loading screen,
+      not while another screen is open) the "Teleported outside the upload area"
+      popup opens with **OK / Cancel / Modify**, and Esc does not close it.
+- [x] **OK** keeps the blackzones. **Cancel** removes them. Either way the
+      resume popup follows.
+- [x] **Modify** opens Xaero's World Map (with Xaero not installed: a chat note
+      and the blackzone is kept). Drag-select and **Mark Blackzone** works, and
+      so does right-click on a blackzone and **Remove ARGUS Blackzone**. Closing
+      the map opens the resume popup.
+- [x] The resume popup: **Stay paused** keeps it paused (`/argus live resume` or
+      the Uploads-tab button resumes). **Resume** continues on a fresh random
+      delay - nothing uploads right away.
+- [x] Teleport out of the area again while standing in a blackzone from the last
+      time: no pause, no popup.
+- [x] Disconnect before answering: the blackzones are still there.
+- [x] Teleport while a live upload run is in flight (outside the area): the run
+      is cancelled.
+- [x] Turn whole-map on and repeat the outside-the-area teleport: it still
+      pauses.
+
+### 13. Upload header
+
+- [x] Any upload's request carries `X-Region-Modified: <epoch ms>` equal to the
+      file's modified time (check the ARGUS side or a local capture proxy).
+
+## Notes from earlier rounds (all since confirmed by the scenarios above)
 
 - The `ConfirmScreen` -> return-to-map round trip
   (`MapUploadTrigger.confirmAndUpload`) follows the same pattern vanilla
@@ -263,3 +367,148 @@ Note which scenario/checkbox failed and what actually happened (chat
 output, a screenshot, `logs/latest.log` around the failure) rather than
 just unchecking the box - that's what turns this into a bug report instead
 of a dead end.
+
+### 14. Auto-map (experimental)
+
+Needs Meteor Client with Elytra Fly on in Vanilla mode, and an elytra. Use a small
+box first (one or two regions) somewhere quiet.
+
+- [x] Without Meteor, without Elytra Fly on, or while not gliding: the right-click
+      option and `/argus automap start ...` explain what's missing instead of starting.
+- [x] Take off with Elytra Fly, drag-select a region on the map, right-click:
+      **Auto-Map This Area (ARGUS)** opens a popup with the area, lane count and a
+      time estimate. **Cancel** returns to the map; **Start** closes it and flies.
+- [x] It heads for the nearest corner, then flies lanes along the longer side at
+      about Y 475, turning at the ends. Meteor's horizontal speed slider moves as it
+      runs and is back at your value afterwards.
+- [x] Watch `/argus automap` (or the chat lines) while flying fast: speed drops when
+      chunks either side of the lane are missing from the map, and creeps back up.
+      Compare with the finished map: no unmapped stripes between lanes.
+- [x] A rubberband lowers the top speed for the rest of the run; a run at your
+      known rubberband speed (5.99) should not keep tripping it.
+- [x] Afterwards it flies to and hovers over any gaps, then reports the percentage
+      mapped and any chunks still missing.
+- [x] `/argus automap stop`, taking damage, `/home`, using a portal, switching
+      Elytra Fly off, or disconnecting each end it with a message and release the keys.
+- [x] Over tall terrain (lower `autoMapCruiseY` well below the terrain to test): it climbs before reaching the slope instead of
+      hitting it.
+- [x] With Xaero's world map not writing (or without Xaero) it says so and falls back
+      to loaded chunks.
+
+### 15. Auto-map calibration flight
+
+Same setup as scenario 14 (Meteor Elytra Fly on in Vanilla mode, gliding). Fly over
+ground you haven't mapped; the popup names the direction it chose and says if map
+files already exist on that line.
+
+- [x] `/argus automap calibrate` opens a popup with the heading, length and speeds.
+      **Start** flies straight, stepping through the speeds (chat shows nothing
+      until the end; `/argus automap` shows the stage).
+- [x] At the end the chat names a folder under `argus-mapper-calibration/` and prints
+      the suggested `autoMapWidthTable` and best speed. The folder holds
+      `summary.txt`, `rows.csv` and `samples.csv`.
+- [x] `summary.txt` lists the environment (view distance, Xaero and XaeroPlus versions,
+      Fast Mapping on/off) and, per speed, chunks across loaded / mapped@6 / mapped@20.
+      Compare the widths with what the Xaero map shows along that line.
+- [x] Repeat with XaeroPlus Fast Mapping turned on (the folder name says which): it
+      should show wider mapped strips or less lag between loaded and mapped.
+- [x] `/argus automap calibrate 1.25 2 3` runs just those speeds.
+- [x] Stopping early (`/argus automap stop`, damage, portal) still writes a report of
+      the stages that finished.
+
+### 16. Auto-map tab in the GUI
+
+- [x] `/argus gui` has an **Auto-map** tab between Uploads and Road Dept.; the tab bar
+      still fits, and the panel is taller on that tab only.
+- [x] The two status lines update live: "Off" and "Not ready: Turn on Elytra Fly
+      first." before you fly, "Ready: ..." once Elytra Fly is on and you're gliding,
+      and the stage or percentage while a run is going.
+- [x] **Use my region** fills all four area fields with your region. Start with bad
+      or empty fields shows "Enter four whole numbers..." in red; with good ones it
+      opens the same confirm popup as the map option (Cancel returns to the GUI).
+- [x] **Stop** ends a run. **Run calibration** with the speeds field blank runs the
+      defaults; with `1.25 2 3` runs those.
+- [x] Changing the speed fields, altitude and lane-width sliders and the width table,
+      then **Save**, keeps them after a restart (`config/argus-mapper.properties`);
+      an unparseable speed leaves the old value in place.
+
+### 17. Uploads held while auto-map runs
+
+Use a scratch layer/token, with some regions in the box already mapped and not yet uploaded.
+
+- [x] Start an auto-map of that box. The start message says nothing in the area is
+      uploaded until it finishes, and the Auto-map tab's status ends "(uploads of the
+      area held)".
+- [x] While it flies, `/argus upload` (or the map's Upload This Area popup, or a live
+      cycle if live is on) leaves those regions out and prints "N region(s) are still
+      being auto-mapped, so they were left out". Regions well outside the box still go.
+- [x] `/argus automap stop` (or a finished run): the message disappears and a manual
+      upload includes the regions again.
+- [x] Turning live upload on during a flight: its cycle skips the held regions and
+      says so; after the run, the next cycle sends them once they have been quiet 3 minutes.
+- [x] The same holds during a calibration flight, along its line.
+
+### 18. Overlapping uploads
+
+Use a scratch layer/token and a few dozen not-yet-uploaded regions.
+
+- [x] `/argus upload`: several regions show as uploading at once in the Uploads tab
+      ("Uploading: ... (+N more in flight)"), and the run finishes in a fraction of the
+      old ~15 s per region. Note the total time for the run.
+- [x] Set "Uploads at once" (GUI, General tab) or `uploadConcurrency` to 1 and repeat
+      with another batch: it should be slower but still overlap the server's replies.
+- [x] `/argus cancel` mid-run stops it within a few seconds and prints one
+      "Upload run finished" line.
+- [x] Every region that reported done is in `argus-mapper-manifest.txt`; nothing appears twice.
+- [x] A wrong token stops the run once with the "check the token" message, not once per file.
+- [x] A big enough backlog to hit "server busy": one chat line about slowing down, the log's
+      PAUSE lines show the open limit halving and creeping back, and no region fails for it.
+- [x] Hitting the per-user limit prints one "per-user upload limit was reached ... resumes by
+      itself" line; nothing is sent for the next ~30 s, then one probe per minute (see the log's
+      QUOTA lines); when it clears the run continues without you doing anything and no region
+      fails. `/argus cancel` while waiting ends the run at once.
+- [x] `argus-mapper-upload-log/` in the game folder has one `.log` per run; open the newest:
+      START/REPLY lines with timings, the summary at the end (regions/min, reply times),
+      and no token anywhere in it.
+
+### 19. Bounty markers
+
+Needs Xaero's Minimap and World Map, and a server in the server list (6b6t).
+
+- [x] Fresh install / bounty off: nothing is fetched (no `argus-bounty` traffic), no waypoints.
+- [x] `/argus bounty on` in the overworld on 6b6t: within a few seconds "ARGUS Bounty Region"
+      waypoints appear on the World Map (up to `bountyLimit`, aqua), at the middle of each
+      cell, and one gold "ARGUS Bounty Region (2x)". They are NOT on the minimap or in the world.
+- [x] Open Xaero's waypoint menu: the waypoints are there, temporary (not saved: restart the
+      game with bounty off and they're gone).
+- [x] `/argus bounty` shows "N region(s) marked ... updated Ns ago"; the GUI's Bounty tab
+      shows the same and its toggle, slider and buttons work (Refresh now, Clear markers).
+- [x] Wait ~2 minutes: the status "updated" resets (a refresh happened) without the waypoints flickering.
+- [x] Go to the nether: status says waiting (not in the overworld) and no requests are made;
+      back in the overworld it refreshes.
+- [x] Join a server that isn't in the list: it waits ("not on a known ARGUS server").
+- [x] `/argus bounty off`: the waypoints disappear at once and nothing more is fetched.
+- [x] With the network blocked: "Couldn't refresh ..., will retry", old markers stay, no errors in chat.
+
+### 20. Bounty boxes and the bounty flight
+
+Bounty on (scenario 19), Meteor Elytra Fly in Vanilla mode, an elytra, you in the overworld.
+
+- [x] Open the World Map: each bounty cell has an aqua box (border + light wash), and today's
+      2x cell is gold. They line up with the cells (1024 x 1024 blocks) and follow pan/zoom.
+- [x] `/argus bounty off`: the boxes disappear at once.
+- [x] Not gliding yet: `/argus bounty go` says to take off first. After taking off, it opens
+      "Fly to this bounty region and map it?" with the distance, top speed and mapping speed.
+- [x] No: nothing changes. Yes: the flight starts, Elytra Fly's horizontal speed goes to ~5.99
+      and you head for the box's NEAREST corner; the status (`/argus automap`) says
+      "Flying to the area: N blocks to go".
+- [x] On reaching the corner the speed drops to ~1.25 (about 25 blocks/s) within about two
+      seconds and it starts flying lanes over the box; the status changes to "Flying lanes".
+- [x] A rubberband on the way in lowers only the transit speed, not the mapping speed.
+- [x] `/argus automap stop`, teleporting, damage, or turning Elytra Fly off stops it, and Elytra
+      Fly's own speed setting goes back to what it was.
+- [x] The box's regions aren't uploaded until it finishes (see scenario 17).
+- [x] World Map: select an area over a bounty box, right-click: "Fly to Bounty Region and
+      Auto-Map (ARGUS)" appears, and only when the selection touches a box.
+- [x] GUI Bounty tab: "Map the 2x cell" / "Map the nearest" open the same popup; with no
+      bounty loaded they say so instead.

@@ -62,7 +62,6 @@ class UploadRunnerCancelTest {
         config.apiBaseUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/upload";
         config.token = "x";
         config.layer = "y";
-        config.paceMillis = 100;
         config.maxRetries = 0;
 
         Path regionFile = dir.resolve("0_0.zip");
@@ -105,6 +104,9 @@ class UploadRunnerCancelTest {
             Thread.sleep(20);
         }
         assertFalse(runner.isRunning(), "cancel() should abort the in-flight request promptly, not wait out its full timeout/retries");
+        while (completions.get() == 0 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20);
+        }
         assertEquals(1, completions.get());
     }
 }

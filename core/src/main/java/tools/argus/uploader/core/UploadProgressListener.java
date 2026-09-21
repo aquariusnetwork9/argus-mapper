@@ -17,15 +17,30 @@ public interface UploadProgressListener {
     default void onQueueBuilt(List<RegionFile> toUpload) {
     }
 
-    /** Fired right before the blocking network call for this region starts. Runs are sequential
-     *  (one region in flight at a time), so at most one region is ever "started" and not yet
-     *  resolved. */
+    /** Fired right before this region's request starts. Several regions can be started and not yet
+     *  resolved at once. */
     default void onRegionStarted(RegionFile region) {
+    }
+
+    /** Regions left out because an auto-map flight is still writing them; fired right after {@link #onSummary}. */
+    default void onHeldForMapping(int held) {
+    }
+
+    /** A region that was sent but has to be sent again later (the server's limit), so it is queued once more. */
+    default void onRegionRequeued(RegionFile region) {
+    }
+
+    /** A queued region the run dropped just before sending; it is not recorded, so a later run picks it up. */
+    default void onRegionDeferred(RegionFile region) {
     }
 
     void onRegionUploaded(RegionFile region, int done, int total);
 
     void onRegionFailed(RegionFile region, String reason, int done, int total);
+
+    /** Something worth telling the player that isn't a per-region result, e.g. the server asking us to slow down. */
+    default void onNotice(String message) {
+    }
 
     void onFatalError(String message);
 

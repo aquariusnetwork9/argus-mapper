@@ -56,7 +56,18 @@ public final class MapUploadTrigger {
         if (resolved.isError()) {
             return Preview.error(resolved.error());
         }
-        List<RegionFile> scoped = resolved.regions().stream().filter(bounds::contains).toList();
+        UploadManifest manifest;
+        try {
+            manifest = UploadManifest.load(ArgusUploaderClientMod.manifestPath());
+        } catch (IOException e) {
+            return Preview.error("Couldn't read the upload manifest: " + e.getMessage());
+        }
+        // Counted the same way UploadRunner will, so the confirm popup states what will really be
+        // sent - not regions the run is about to skip as already uploaded.
+        List<RegionFile> scoped = resolved.regions().stream()
+                .filter(bounds::contains)
+                .filter(region -> manifest.needsUpload(region, config.reuploadChangedRegions))
+                .toList();
         long totalBytes = scoped.stream().mapToLong(RegionFile::sizeBytes).sum();
         return new Preview(scoped, totalBytes, null);
     }
@@ -139,6 +150,11 @@ public final class MapUploadTrigger {
         @Override
         public void onRegionFailed(RegionFile region, String reason, int done, int total) {
             feedback(client, "Failed " + region.filename() + " (" + region.dimension() + "): " + reason);
+        }
+
+        @Override
+        public void onNotice(String message) {
+            feedback(client, message);
         }
 
         @Override

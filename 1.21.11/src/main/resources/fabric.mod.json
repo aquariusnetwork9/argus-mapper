@@ -3,7 +3,7 @@
   "id": "argus-mapper",
   "version": "${version}",
   "name": "ARGUS Mapper",
-  "description": "Uploads Xaero's World Map region files to the ARGUS spawn region mapping project, and bundles Aquarius Road Department (ARD) nether-highway condition reporting/HUD.",
+  "description": "Shares your Xaero's World Map with the ARGUS spawn region mapping project: live upload, blackzones and teleport protection, auto-mapping flights and the bounty, plus the Aquarius Road Department (ARD) nether-highway tools.",
   "authors": ["Aquarius Networks"],
   "environment": "client",
   "entrypoints": {

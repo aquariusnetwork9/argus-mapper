@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.TreeMap;
 
@@ -109,6 +110,10 @@ public final class BlackzoneStore {
 
     public List<BlackZone> all() {
         return List.copyOf(zones.values());
+    }
+
+    public Optional<BlackZone> find(String id) {
+        return Optional.ofNullable(zones.get(id));
     }
 
     public List<BlackZone> forServer(String dimension, String layer) {

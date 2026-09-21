@@ -36,7 +36,8 @@ class UploadRunnerTest {
                 List.of(alreadyUploaded, tooLarge, blackzoned, clean),
                 manifest,
                 100,
-                r -> !r.equals(blackzoned));
+                r -> !r.equals(blackzoned),
+                false);
 
         assertEquals(1, result.alreadyUploaded());
         assertEquals(1, result.tooLarge());
@@ -54,7 +55,7 @@ class UploadRunnerTest {
         manifest.markUploaded(region);
 
         UploadRunner.FilterResult result = UploadRunner.filterRegions(
-                List.of(region), manifest, 100, r -> false);
+                List.of(region), manifest, 100, r -> false, false);
 
         assertEquals(1, result.alreadyUploaded());
         assertEquals(0, result.excludedByBlackzone());
@@ -63,8 +64,67 @@ class UploadRunnerTest {
     @Test
     void emptyInputProducesEmptyResult(@TempDir Path dir) throws IOException {
         UploadManifest manifest = UploadManifest.load(dir.resolve("manifest.txt"));
-        UploadRunner.FilterResult result = UploadRunner.filterRegions(List.of(), manifest, 100, r -> true);
+        UploadRunner.FilterResult result = UploadRunner.filterRegions(List.of(), manifest, 100, r -> true, false);
         assertTrue(result.toUpload().isEmpty());
         assertEquals(0, result.alreadyUploaded() + result.tooLarge() + result.excludedByBlackzone());
+    }
+
+    private static RegionFile modified(String dimension, int x, int z, long sizeBytes, long mtime) {
+        String filename = x + "_" + z + ".zip";
+        return new RegionFile(Path.of(filename), filename, x, z, dimension, sizeBytes, mtime);
+    }
+
+    @Test
+    void changedRegionIsReuploadedOnlyWhenEnabled(@TempDir Path dir) throws IOException {
+        UploadManifest manifest = UploadManifest.load(dir.resolve("manifest.txt"));
+        manifest.markUploaded(modified("overworld", 0, 0, 10, 1_000));
+        RegionFile newer = modified("overworld", 0, 0, 10, 2_000);
+
+        UploadRunner.FilterResult off = UploadRunner.filterRegions(List.of(newer), manifest, 100, r -> true, false);
+        assertEquals(1, off.alreadyUploaded());
+        assertTrue(off.toUpload().isEmpty());
+
+        UploadRunner.FilterResult on = UploadRunner.filterRegions(List.of(newer), manifest, 100, r -> true, true);
+        assertEquals(0, on.alreadyUploaded());
+        assertEquals(List.of(newer), on.toUpload());
+    }
+
+    @Test
+    void unchangedRegionStaysAlreadyUploadedEvenWhenReuploadIsEnabled(@TempDir Path dir) throws IOException {
+        UploadManifest manifest = UploadManifest.load(dir.resolve("manifest.txt"));
+        RegionFile region = modified("overworld", 0, 0, 10, 1_000);
+        manifest.markUploaded(region);
+
+        UploadRunner.FilterResult result = UploadRunner.filterRegions(List.of(region), manifest, 100, r -> true, true);
+
+        assertEquals(1, result.alreadyUploaded());
+        assertTrue(result.toUpload().isEmpty());
+    }
+
+    @Test
+    void changedRegionInsideABlackzoneIsStillExcluded(@TempDir Path dir) throws IOException {
+        // Reupload only relaxes "already uploaded" - a blackzone drawn over a region after it was
+        // first uploaded must still stop every later version of it from being sent.
+        UploadManifest manifest = UploadManifest.load(dir.resolve("manifest.txt"));
+        manifest.markUploaded(modified("overworld", 0, 0, 10, 1_000));
+        RegionFile newer = modified("overworld", 0, 0, 10, 2_000);
+
+        UploadRunner.FilterResult result = UploadRunner.filterRegions(List.of(newer), manifest, 100, r -> false, true);
+
+        assertEquals(1, result.excludedByBlackzone());
+        assertEquals(0, result.alreadyUploaded());
+        assertTrue(result.toUpload().isEmpty());
+    }
+
+    @Test
+    void changedRegionOverTheSizeLimitIsStillExcluded(@TempDir Path dir) throws IOException {
+        UploadManifest manifest = UploadManifest.load(dir.resolve("manifest.txt"));
+        manifest.markUploaded(modified("overworld", 0, 0, 10, 1_000));
+        RegionFile newerAndHuge = modified("overworld", 0, 0, 999, 2_000);
+
+        UploadRunner.FilterResult result = UploadRunner.filterRegions(List.of(newerAndHuge), manifest, 100, r -> true, true);
+
+        assertEquals(1, result.tooLarge());
+        assertTrue(result.toUpload().isEmpty());
     }
 }

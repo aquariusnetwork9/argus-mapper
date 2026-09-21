@@ -23,6 +23,7 @@ import tools.argus.uploader.core.MapperStats;
 import tools.argus.uploader.core.UploadRunner;
 import tools.argus.uploader.core.UploadSummary;
 import tools.argus.uploader.core.UploadTracker;
+import tools.argus.uploader.core.automap.ChunkBox;
 import tools.argus.uploader.fabric.api.ArgusMapperEvents;
 import tools.argus.uploader.fabric.gui.GuiLauncher;
 
@@ -113,7 +114,138 @@ final class ArgusCommand {
                         .then(literal("remove")
                                 .then(argument("id", StringArgumentType.word())
                                         .executes(ctx -> blackzoneRemove(ctx.getSource(), StringArgumentType.getString(ctx, "id"))))))
+                .then(literal("live")
+                        .executes(ctx -> autoStatus(ctx.getSource()))
+                        .then(literal("on").executes(ctx -> autoOn(ctx.getSource(), AutoUploads.Kind.LIVE)))
+                        .then(literal("off").executes(ctx -> autoOff(ctx.getSource(), AutoUploads.Kind.LIVE)))
+                        .then(literal("resume").executes(ctx -> autoResume(ctx.getSource()))))
+                .then(literal("wholemap")
+                        .executes(ctx -> autoStatus(ctx.getSource()))
+                        .then(literal("on").executes(ctx -> autoOn(ctx.getSource(), AutoUploads.Kind.WHOLE_MAP)))
+                        .then(literal("off").executes(ctx -> autoOff(ctx.getSource(), AutoUploads.Kind.WHOLE_MAP))))
+                .then(literal("automap")
+                        .executes(ctx -> autoMapStatus(ctx.getSource()))
+                        .then(literal("status").executes(ctx -> autoMapStatus(ctx.getSource())))
+                        .then(literal("stop").executes(ctx -> autoMapStop(ctx.getSource())))
+                        .then(literal("calibrate")
+                                .executes(ctx -> autoMapCalibrate(ctx.getSource(), ""))
+                                .then(argument("speeds", StringArgumentType.greedyString())
+                                        .executes(ctx -> autoMapCalibrate(ctx.getSource(),
+                                                StringArgumentType.getString(ctx, "speeds")))))
+                        .then(literal("start")
+                                .then(argument("minRegionX", IntegerArgumentType.integer())
+                                        .then(argument("minRegionZ", IntegerArgumentType.integer())
+                                                .then(argument("maxRegionX", IntegerArgumentType.integer())
+                                                        .then(argument("maxRegionZ", IntegerArgumentType.integer())
+                                                                .executes(ctx -> autoMapStart(ctx.getSource(),
+                                                                        IntegerArgumentType.getInteger(ctx, "minRegionX"),
+                                                                        IntegerArgumentType.getInteger(ctx, "minRegionZ"),
+                                                                        IntegerArgumentType.getInteger(ctx, "maxRegionX"),
+                                                                        IntegerArgumentType.getInteger(ctx, "maxRegionZ")))))))))
+                .then(literal("bounty")
+                        .executes(ctx -> bountyStatus(ctx.getSource()))
+                        .then(literal("status").executes(ctx -> bountyStatus(ctx.getSource())))
+                        .then(literal("on").executes(ctx -> bountySet(ctx.getSource(), true)))
+                        .then(literal("off").executes(ctx -> bountySet(ctx.getSource(), false)))
+                        .then(literal("refresh").executes(ctx -> bountyRefresh(ctx.getSource())))
+                        .then(literal("go")
+                                .executes(ctx -> bountyGo(ctx.getSource(), null))
+                                .then(literal("2x").executes(ctx -> bountyGo(ctx.getSource(), "2x")))
+                                .then(literal("nearest").executes(ctx -> bountyGo(ctx.getSource(), "nearest"))))
+                        .then(literal("clear").executes(ctx -> bountyClear(ctx.getSource()))))
                 .then(literal("gui").executes(ctx -> openGui(ctx.getSource()))));
+    }
+
+    private static int bountyStatus(FabricClientCommandSource source) {
+        info(source, "Bounty: " + Bounty.statusLine());
+        return 1;
+    }
+
+    private static int bountySet(FabricClientCommandSource source, boolean on) {
+        Bounty.setEnabled(on);
+        info(source, on
+                ? "Bounty markers on. About every 2 minutes, in the overworld on a known server, the mod fetches the public list and marks it on Xaero's World Map."
+                : "Bounty markers off and cleared. Nothing is fetched.");
+        return 1;
+    }
+
+    private static int bountyGo(FabricClientCommandSource source, String which) {
+        String problem = Bounty.requestFlight(which);
+        if (problem != null) {
+            error(source, problem);
+            return 0;
+        }
+        info(source, "Confirm in the popup to fly there and map it.");
+        return 1;
+    }
+
+    private static int bountyRefresh(FabricClientCommandSource source) {
+        info(source, Bounty.refreshNow());
+        return 1;
+    }
+
+    private static int bountyClear(FabricClientCommandSource source) {
+        Bounty.clearMarkers();
+        info(source, "Cleared the bounty markers. They come back at the next refresh while bounty is on.");
+        return 1;
+    }
+
+    private static int autoMapStatus(FabricClientCommandSource source) {
+        info(source, "Auto-map: " + AutoMapper.status());
+        return 1;
+    }
+
+    private static int autoMapStop(FabricClientCommandSource source) {
+        if (!AutoMapper.isRunning()) {
+            error(source, "Auto-map isn't running.");
+            return 0;
+        }
+        AutoMapper.stop("stopped by /argus automap stop");
+        return 1;
+    }
+
+    private static int autoMapCalibrate(FabricClientCommandSource source, String speeds) {
+        AutoMapper.requestCalibrationFromCommand(speeds);
+        info(source, "Confirm in the popup to start the calibration flight.");
+        return 1;
+    }
+
+    private static int autoMapStart(FabricClientCommandSource source, int regionX1, int regionZ1, int regionX2, int regionZ2) {
+        AutoMapper.requestStartFromCommand(ChunkBox.ofRegions(regionX1, regionZ1, regionX2, regionZ2));
+        info(source, "Confirm in the popup to start auto-mapping.");
+        return 1;
+    }
+
+    private static String autoLabel(AutoUploads.Kind kind) {
+        return kind == AutoUploads.Kind.LIVE ? "live" : "whole-map";
+    }
+
+    private static int autoStatus(FabricClientCommandSource source) {
+        info(source, "Live upload: " + AutoUploads.liveStatus() + ". Whole-map upload: "
+                + (AutoUploads.isWholeMap() ? "on" : "off") + ".");
+        return 1;
+    }
+
+    private static int autoOn(FabricClientCommandSource source, AutoUploads.Kind kind) {
+        AutoUploads.requestEnableFromCommand(kind);
+        info(source, "Confirm in the popup to turn on " + autoLabel(kind) + " upload.");
+        return 1;
+    }
+
+    private static int autoOff(FabricClientCommandSource source, AutoUploads.Kind kind) {
+        AutoUploads.disable(kind);
+        info(source, "Turned off " + autoLabel(kind) + " upload.");
+        return 1;
+    }
+
+    private static int autoResume(FabricClientCommandSource source) {
+        if (!AutoUploads.isLive()) {
+            error(source, "Live upload isn't on.");
+            return 0;
+        }
+        AutoUploads.resumeLive();
+        info(source, "Live upload resumed.");
+        return 1;
     }
 
     private static int openGui(FabricClientCommandSource source) {
@@ -276,18 +408,14 @@ final class ArgusCommand {
     }
 
     private static int blackzoneRemove(FabricClientCommandSource source, String id) {
-        try {
-            boolean removed = ArgusUploaderClientMod.blackzoneStore().remove(id);
-            if (removed) {
-                info(source, "Blackzone '" + id + "' removed. Anything inside it can be uploaded again on the next run.");
-            } else {
-                error(source, "No blackzone with id '" + id + "'. See /argus blackzone list.");
-            }
-            return removed ? 1 : 0;
-        } catch (IOException e) {
-            error(source, "Failed to remove blackzone: " + e.getMessage());
+        Optional<BlackZone> zone = ArgusUploaderClientMod.blackzoneStore().find(id);
+        if (zone.isEmpty()) {
+            error(source, "No blackzone with id '" + id + "'. See /argus blackzone list.");
             return 0;
         }
+        BlackzoneRemoval.requestFromCommand(List.of(zone.get()));
+        info(source, "Confirm in the popup to remove blackzone '" + id + "'.");
+        return 1;
     }
 
     private static int serverDetect(FabricClientCommandSource source) {
@@ -364,7 +492,7 @@ final class ArgusCommand {
         }
         if (resolved.rejectedOutOfRange() > 0) {
             info(source, "  skipped " + resolved.rejectedOutOfRange() + " region(s) outside the +/-"
-                    + CoordLimits.MAX_ABS_COORD + " coordinate limit.");
+                    + CoordLimits.MAX_ABS_REGION + " region limit (about +/-" + CoordLimits.MAX_ABS_REGION * 512 + " blocks).");
         }
         if (resolved.rejectedOffHighway() > 0) {
             info(source, "  skipped " + resolved.rejectedOffHighway() + " nether region(s) not near a known ARD highway.");
@@ -482,7 +610,7 @@ final class ArgusCommand {
         info(source, "layer=" + (c.layer.isBlank() ? "(not set)" : c.layer));
         info(source, "token=" + (c.token.isBlank() ? "(not set)" : "(set, hidden)"));
         info(source, "xaeroRootOverride=" + (c.xaeroRootOverride.isBlank() ? "(auto-detect)" : c.xaeroRootOverride));
-        info(source, "includeCaves=" + c.includeCaves + " paceMillis=" + c.paceMillis + " maxPerBatch=" + c.maxPerBatch);
+        info(source, "includeCaves=" + c.includeCaves + " uploadConcurrency=" + c.uploadConcurrency + " maxPerBatch=" + c.maxPerBatch);
         info(source, "restrictNetherToHighways=" + c.restrictNetherToHighways);
         return 1;
     }
@@ -537,6 +665,11 @@ final class ArgusCommand {
         }
 
         @Override
+        public void onHeldForMapping(int held) {
+            info(source, held + " region(s) are still being auto-mapped, so they were left out.");
+        }
+
+        @Override
         public void onRegionUploaded(RegionFile region, int done, int total) {
             if (done % 10 == 0 || done == total) {
                 info(source, "Uploaded " + done + " / " + total + " (" + region.filename() + ", " + region.dimension() + ")");
@@ -546,6 +679,11 @@ final class ArgusCommand {
         @Override
         public void onRegionFailed(RegionFile region, String reason, int done, int total) {
             error(source, "Failed " + region.filename() + " (" + region.dimension() + "): " + reason);
+        }
+
+        @Override
+        public void onNotice(String message) {
+            info(source, message);
         }
 
         @Override

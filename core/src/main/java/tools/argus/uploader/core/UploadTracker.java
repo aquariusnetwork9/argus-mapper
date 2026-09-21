@@ -70,6 +70,11 @@ public final class UploadTracker implements UploadProgressListener {
     }
 
     @Override
+    public void onHeldForMapping(int held) {
+        delegate.onHeldForMapping(held);
+    }
+
+    @Override
     public void onQueueBuilt(List<RegionFile> toUpload) {
         synchronized (rows) {
             rows.clear();
@@ -87,6 +92,24 @@ public final class UploadTracker implements UploadProgressListener {
             rows.put(region, new RowState(region, Status.UPLOADING, null, System.currentTimeMillis(), 0L));
         }
         delegate.onRegionStarted(region);
+        fireChanged();
+    }
+
+    @Override
+    public void onRegionRequeued(RegionFile region) {
+        synchronized (rows) {
+            rows.put(region, new RowState(region, Status.QUEUED, null, 0L, 0L));
+        }
+        delegate.onRegionRequeued(region);
+        fireChanged();
+    }
+
+    @Override
+    public void onRegionDeferred(RegionFile region) {
+        synchronized (rows) {
+            rows.remove(region);
+        }
+        delegate.onRegionDeferred(region);
         fireChanged();
     }
 
@@ -114,6 +137,11 @@ public final class UploadTracker implements UploadProgressListener {
     private long startedAtOrNow(RegionFile region) {
         RowState existing = rows.get(region);
         return existing != null && existing.startedAtMillis() > 0 ? existing.startedAtMillis() : System.currentTimeMillis();
+    }
+
+    @Override
+    public void onNotice(String message) {
+        delegate.onNotice(message);
     }
 
     @Override

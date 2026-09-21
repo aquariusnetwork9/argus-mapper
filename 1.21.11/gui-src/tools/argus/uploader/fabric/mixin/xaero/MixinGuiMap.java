@@ -13,7 +13,12 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import tools.argus.uploader.core.BlackZone;
 import tools.argus.uploader.core.RegionBounds;
+import tools.argus.uploader.core.automap.ChunkBox;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.core.bounty.BountyRegion;
+import tools.argus.uploader.fabric.AutoMapper;
+import tools.argus.uploader.fabric.BlackzoneRemoval;
+import tools.argus.uploader.fabric.Bounty;
 import tools.argus.uploader.fabric.MapUploadTrigger;
 import xaero.map.MapProcessor;
 import xaero.map.gui.GuiMap;
@@ -23,6 +28,7 @@ import xaero.map.gui.dropdown.rightclick.RightClickOption;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Adds a "Mark Blackzone" entry to Xaero's World Map right-click menu, covering whatever area is
@@ -71,6 +77,53 @@ public abstract class MixinGuiMap {
                 argusMapper$markBlackzone(selection);
             }
         });
+        options.add(new RightClickOption("argus_mapper.gui.world_map.auto_map", options.size(), self) {
+            @Override
+            public void onAction(Screen screen) {
+                AutoMapper.requestStart(ChunkBox.ofCorners(selection.getLeft(), selection.getTop(),
+                        selection.getRight(), selection.getBottom()), screen);
+            }
+        });
+
+        BountyRegion bountyHere = Bounty.regionOverlapping(selection.getLeft() * 16, selection.getTop() * 16,
+                (selection.getRight() + 1) * 16, (selection.getBottom() + 1) * 16);
+        if (bountyHere != null) {
+            options.add(new RightClickOption("argus_mapper.gui.world_map.bounty_fly", options.size(), self) {
+                @Override
+                public void onAction(Screen screen) {
+                    AutoMapper.requestBounty(bountyHere, screen);
+                }
+            });
+        }
+
+        List<BlackZone> blackzonesInSelection = argusMapper$blackzonesIn(selection);
+        if (!blackzonesInSelection.isEmpty()) {
+            options.add(new RightClickOption("argus_mapper.gui.world_map.remove_blackzone", options.size(), self) {
+                @Override
+                public void onAction(Screen screen) {
+                    BlackzoneRemoval.confirmAndRemove(screen, blackzonesInSelection);
+                }
+            });
+        }
+    }
+
+    @Unique
+    private List<BlackZone> argusMapper$blackzonesIn(MapTileSelection selection) {
+        String dimension = argusMapper$currentDimension();
+        String layer = ArgusUploaderClientMod.config().layer;
+        if (dimension == null || layer.isBlank()) {
+            return List.of();
+        }
+        RegionBounds bounds = RegionBounds.ofCorners(
+                selection.getLeft() >> 5, selection.getTop() >> 5,
+                selection.getRight() >> 5, selection.getBottom() >> 5);
+        List<BlackZone> overlapping = new ArrayList<>();
+        for (BlackZone zone : ArgusUploaderClientMod.blackzoneStore().forServer(dimension, layer)) {
+            if (zone.bounds().intersects(bounds)) {
+                overlapping.add(zone);
+            }
+        }
+        return overlapping;
     }
 
     @Unique

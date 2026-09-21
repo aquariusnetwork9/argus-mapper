@@ -1,569 +1,246 @@
 # ARGUS Mapper
 
-A Fabric client mod, built by Aquarius Networks for the ARGUS spawn region
-mapping project. It scans your Xaero's World Map region files for the
-current world/server and uploads them to ARGUS's partner API
-(`https://map.argus.tools/api/partner/upload`), respecting the API's rate
-limits and batch size, and can report contribution stats (regions/chunks
-mapped, distance traveled) to a Discord webhook.
+A Fabric mod from Aquarius Networks for the ARGUS spawn-region mapping project.
+It takes the map you've already explored in Xaero's World Map and shares it with
+ARGUS - with plenty of tools to keep your own places private, and a few to help you
+explore more of the map faster.
 
-**The easiest way to use it is the [GUI](#gui) (`/argus gui`, or bind a
-key to it in Controls) plus the [Xaero's World Map integration](#xaeros-world-map-integration)**
-(drag-select an area on the map and right-click it) - between the two,
-every setting and every day-to-day action (setting your token, marking a
-[blackzone](#blackzones), scoping an upload to exactly the area you want)
-is a click away, with no command syntax to remember. The `/argus` chat
-commands documented under [Commands](#commands) do the exact same things
-underneath and are always available as a scriptable/always-on fallback
-(and the only option before you've set a token), but for normal play the
-GUI and the map are the more comfortable way in.
+Works on **Minecraft 1.21.11 and 26.2**, the two versions 6b6t lets you join.
 
-It also bundles
-[Aquarius Road Department](https://github.com/aquariusnetwork9/Aquarius-Road-Department)
-(ARD) - crowdsourced nether-highway condition reporting and a hazard-ahead
-HUD - as a second, independent feature set in the same jar (see "Aquarius
-Road Department" below).
+> ### Legacy versions: 1.21.4 and 1.21.8
+>
+> The 1.21.4 and 1.21.8 versions of this mod are **legacy, and completely out of
+> band**. They are **not built, not released, not updated and not supported**. Nothing
+> in 1.0 or any later release is made with them in mind, and there is no 1.0 build of
+> them. Their folders remain in the repository only as a record; they are not kept
+> working, and questions or bug reports about them will not be answered. If you play
+> on 1.21.4 or 1.21.8, this release is not for you.
 
-## Design
+## What it does
 
-Almost none of this mod touches Minecraft internals - it reads `.zip` files
-off disk and makes HTTP requests. So it's split into:
+### Upload your map in a few clicks
+Open Xaero's fullscreen map, drag a box around what you want to share, right-click and
+choose **Upload This Area to ARGUS**. A popup tells you how many regions and roughly how
+many megabytes are about to go before anything is sent. Prefer the keyboard?
+`/argus scan` shows exactly what would be uploaded and what would be skipped and why,
+and `/argus upload` sends it. Everything is also available from the in-game screen (see
+[The ARGUS screen](#the-argus-screen)).
 
-- **`core/`** - plain Java, zero Minecraft/Fabric dependencies. Region
-  scanning, dimension classification, the coordinate cap, the upload
-  client, the rate-limited batch runner, config, the server registry, the
-  Discord webhook client, and the "already uploaded" manifest all live
-  here. This is the part that matters and it's identical on every
-  Minecraft version - and the part covered by the test suite in
-  `core/src/test/java` (see "Testing" below).
-- **`fabric-common/`** - a thin Fabric client adapter (mod initializer,
-  the `/argus` command, player-distance tracking) shared, as source,
-  across the three 1.21.x builds.
-- **`1.21.4/`, `1.21.8/`, `1.21.11/`** - each is a real, independently
-  buildable Fabric Loom subproject. They don't depend on `core` as a
-  compiled jar; they just add `core/src/main/java` and
-  `fabric-common/src/main/java` as extra source directories, so there's
-  only one copy of the logic to maintain and no jar-in-jar complexity.
-- **`26.2/`** - ported and live-tested against Minecraft 26.x's Mojang
-  mappings (no more Yarn/obfuscation on this line - see
-  [26.2/NOTES.md](26.2/NOTES.md) for the mapping differences that tripped
-  up the port, including a genuinely deeper GUI widget rewrite than
-  1.21.11's). Full `/argus` command tree, blackzones, the GUI, the pause-
-  menu button, and Xaero World Map's right-click integration + region
-  overlay all work. Still missing ARD and a real (non-stubbed)
-  nether-highway check - see that file for what's deferred and why.
+Uploads are quick: several regions go out at once. If ARGUS is busy the mod eases off
+by itself, and if you reach your personal limit (currently 800 regions per 10 minutes)
+it waits, then carries on without you doing anything - nothing is lost or marked as
+failed. You can stop a run at any time with `/argus cancel`.
 
-### Supported versions
+### Live upload (opt-in)
+Switch it on and the mod uploads what you explore while you play, in the background.
+Every few minutes (a random 3 to 10) it sends the regions you've mapped since turning it
+on. A region you're still exploring is held back until you've moved on for about three
+minutes, so ARGUS gets finished regions rather than half-drawn ones. The random delay
+means the timing of uploads never shows where you are right now.
 
-6b6t - the server this mod actually targets - kicks any client below
-1.21.11 with "Unsupported Minecraft version. Join with Minecraft 1.21.11
-or newer." (confirmed live), so **1.21.11 and 26.2 are the two versions
-that can actually be used against it**, and are the only ones CI builds
-or ships in a [Release](#releasing) as of v0.3.0. 1.21.4 and 1.21.8 stay
-in the repo, keep compiling, and keep getting real updates (they're at
-GUI+Xaero parity with 1.21.11 as of this writing) for local use or any
-other server without this floor - just build them yourself
-(`gradle :1.21.4:build`) - but they're no longer part of the automated
-build/release pipeline. See [CI](#ci) for the exact mechanics.
+Live upload is per session: it never saves itself as "on", turns off when you disconnect,
+crash or restart, and always asks before starting.
 
-## GUI
+### Teleport protection
+Live upload watches for teleports (a jump of more than 128 blocks, or a change of
+dimension - `/home` to a faraway base, a portal trip, respawning). Landing somewhere inside
+the normal upload area changes nothing. Landing **outside** it - somewhere private,
+probably - pauses live upload at once, cancels anything in progress, and drops a
+protective blackzone 25 regions (about 12,800 blocks) in every direction around where you
+landed, in the dimension you arrived in and its Overworld or Nether counterpart. Once you've settled, a popup lets you keep
+it (**OK**), remove it (**Cancel**) or draw your own on Xaero's map (**Modify**), and then
+asks whether to resume. The blackzone is there from the moment you land, even if you log
+out before answering. Your position is only compared from moment to moment on your own
+computer - it's never stored or sent anywhere.
 
-The recommended way to use this mod day-to-day. Open it with `/argus gui`,
-or bind a key to it in Controls (unbound by default, listed under "ARGUS
-Mapper") - either way it opens reliably and resizes itself to fit your
-window on every version this mod supports. General, Token, Servers, Stats,
-Uploads, and Add-on API tabs read and write the exact same config objects
-the chat commands do, so there's no separate GUI-only state to fall out of
-sync and nothing you can only do from one side or the other. 1.21.4,
-1.21.8, and 1.21.11 additionally have a **Road Dept. (ARD)** tab (seven
-tabs total); 26.2 doesn't, since ARD has no 26.2 port yet. The **Uploads**
-tab is a torrent-style live view of the current run (aggregate progress
-bar, queued/done/failed counts, and how many were excluded by a
-blackzone), backed by a tracker that lives on the background upload run
-itself - it keeps updating even if you close and reopen the GUI mid-run,
-and survives a server disconnect/switch, since the run doesn't stop until
-the game does.
+### Blackzones
+A blackzone is an area that is never uploaded, no matter what: your base, a stash, a
+hideout. Blackzones stay on your computer - ARGUS never sees them and nothing in an upload
+hints that one exists. Draw one on Xaero's map (drag, right-click, **Mark ARGUS
+Blackzone**), let teleport protection add one, or use `/argus blackzone add`. Removing one
+always asks first and names what will stop being excluded.
 
-Available on every version this mod supports - **1.21.4**, **1.21.8**,
-**1.21.11**, and **26.2**. 1.21.11 needed its own port of the GUI's widget
-and keybinding code (`1.21.11/gui-src/`) since that version's
-`PressableWidget` changed `onPress`/`renderWidget`/`drawIcon` from what
-1.21.4/1.21.8 use, and its `KeyBinding` category parameter became a
-`KeyBinding.Category` object instead of a plain `String`. 26.2 needed a
-still deeper port of its own against real Mojang mappings - see
-[26.2/NOTES.md](26.2/NOTES.md) for the widget-hierarchy rewrite that
-involved. `/argus` and `/ard` chat commands are unaffected on every
-version regardless.
+### Distance limit and whole-map upload
+By default nothing more than 200 regions (about 100,000 blocks) from the world origin is
+ever uploaded. **Whole-map upload** lifts that limit for one session - handy for
+far-away bases you actually want to share. Blackzones still apply, and it switches
+itself off when you disconnect.
 
-Picked from three visual directions pitched up front (a vanilla-menu skin,
-a floating utility-client skin, and an original watchtower-console skin) -
-shipped as **Nightwire**, the utility-client one: dark panel, violet
-accent, pill-style toggles. Minecraft can't load a custom font without
-shipping a resource pack (not done for v1), so in-game text uses the
-default Minecraft font rather than the concept mockup's; sliders also keep
-vanilla's own groove/handle rendering rather than a fully custom one.
+### Nether privacy
+One block in the Nether covers eight in the Overworld, so an unrestricted Nether map gives
+away much more than the same Overworld region. By default the mod only uploads Nether
+regions that lie along the public highway network (from Aquarius Road Department). If
+the highway data hasn't loaded yet it plays safe and uploads no Nether regions, and
+`/argus scan` tells you when that's why.
 
-### Add-on API
+### Re-upload changed regions (opt-in)
+Normally a region is uploaded once. Turn on **Re-upload regions that changed** and any
+region you've explored more of since is sent again, replacing the older copy on ARGUS.
+Blackzones, the distance limit and the size limit still apply. Live upload always does
+this for regions saved during the session.
 
-Other Fabric mods can react to ARGUS Mapper without touching its
-internals, via `tools.argus.uploader.fabric.api.ArgusMapperEvents` - the
-same pattern ARD's own `LocalHazardEvents` uses:
+### Auto-map (experimental)
+Let the mod fly the map for you. Drag a box on Xaero's map, right-click, choose
+**Auto-Map This Area (ARGUS)**, and confirm. It flies back-and-forth lanes over the box
+with Meteor Client's Elytra Fly, at a steady height well above build height (Y 475 by
+default), so Xaero records every chunk.
 
-```java
-ArgusMapperEvents.UPLOAD_COMPLETED.register(summary ->
-    log.info(summary.succeeded() + " regions uploaded"));
-ArgusMapperEvents.STATS_CHANGED.register(stats ->
-    hud.update(stats.distanceTraveledBlocks()));
-```
+- **Smart about speed.** Xaero draws a narrower strip the faster you fly, so the mod
+  flies at the speed that maps the most ground per second - around 25 blocks per second
+  on 6b6t - and spaces the lanes to match. If the map can't keep up it slows down; if the
+  server pulls you back it remembers and stays slower.
+- **Fills the gaps.** When the lanes are done it goes back for any chunk that was missed.
+- **Safe.** Nothing in the area is uploaded until the flight ends, so a half-mapped region
+  never replaces a fuller one. It stops by itself if you teleport, change dimension, take
+  damage, stop gliding, run low on elytra, or switch Elytra Fly off. `/argus automap stop`
+  ends it at any time, and your Meteor speed setting is put back.
 
-Both fire on the client thread. `UPLOAD_COMPLETED` fires once per
-`/argus upload` run; `STATS_CHANGED` fires after that and once at startup
-with whatever was already on disk, so a fresh listener doesn't have to
-wait for an upload to get an initial value.
+You need Meteor Client's **Elytra Fly** switched on in **Vanilla** mode and to be
+gliding already (take off yourself). Overworld and End only.
 
-Toggleable: `enableAddonApi` in the config (or the API tab in the GUI),
-default on. When off, neither event ever fires, so no other mod's
-registered listener runs, regardless of whether it called `.register()`
-itself. Worth being precise about what this does and doesn't protect
-against: it's a switch on ARGUS Mapper's own two events (upload counts,
-aggregate distance/region stats - neither ever carried live player
-position), not a sandbox. Any mod sharing the same JVM already has full,
-direct access to the player's live position via vanilla Minecraft's own
-APIs, with no dependency on ARGUS Mapper at all - this toggle can't change
-that, because nothing could short of the game itself restricting mod
-capabilities.
+There's also a **calibration flight** (`/argus automap calibrate`) that flies one
+straight line at a series of speeds and writes a report showing how wide a strip gets
+mapped at each - useful for tuning. Run it with and without XaeroPlus's Fast Mapping to
+compare.
 
-## Xaero's World Map integration
+### Bounty regions
+The ARGUS bounty works out which parts of the map it wants filled in next, closest to
+spawn first, plus a special double-reward cell each day. Turn on **Bounty** and the mod
+shows them on Xaero's World Map:
 
-The other easy way in, available on every version this mod supports.
-Optional: the mod loads and works identically whether or
-not Xaero's World Map is installed at all - a Mixin config plugin gates
-the integration on `FabricLoader.isModLoaded("xaeroworldmap")`, so nothing
-about the rest of the mod depends on it.
+- Each wanted cell is drawn as an **aqua box**, and today's double-reward cell as a **gold
+  box**.
+- A marker named **ARGUS Bounty Region** sits in the middle of each one (the gold one is
+  named **ARGUS Bounty Region (2x)**). They're temporary - Xaero never saves them - and
+  only show on the world map, not the minimap or in the world.
+- **Fly there and map it.** Right-click a selection over a box and choose **Fly to
+  Bounty Region and Auto-Map**, press a button in the Bounty tab, or type
+  `/argus bounty go`. You're asked to confirm, then the mod flies to the box's nearest
+  corner at top speed, slows to mapping speed within a couple of seconds of arriving,
+  and maps the whole box like an auto-map.
 
-With Xaero's World Map installed, drag a selection on the fullscreen map
-(Xaero's own native rectangle-select) and right-click inside it for two
-extra options:
+Bounty is **off by default**. While it's on, in the Overworld on a known server, the mod
+asks ARGUS for the current list about every two minutes. That's a plain download of a
+public list: no token, no name, no position - nothing about you is sent. It stays quiet
+in the Nether and the End, on other servers and in single-player. Needs Xaero's Minimap
+and World Map.
 
-- **Mark ARGUS Blackzone** - saves the selection as a blackzone (see
-  [Blackzones](#blackzones) below) covering the current dimension,
-  immediately and without leaving the map.
-- **Upload This Area to ARGUS** - scopes an upload to exactly the
-  selection: a confirm popup shows the region count and approximate size
-  before anything is sent, and only on confirmation does it start the
-  same background run `/argus upload` does - so it shows up in the
-  Uploads tab, gets the same Discord auto-report, and gets the same
-  blackzone/coordinate-cap enforcement. Answering either way returns you
-  to the map. Refuses (with a chat message, no popup) if a run is already
-  in progress or the selection has nothing eligible to upload.
+### See what's happening
+Xaero's map colours regions as you look at it: a **red outline** for a blackzone,
+**amber** while a region is uploading, **green** once it's uploaded, and the aqua and
+gold boxes for the bounty.
 
-The map also colors each visible region tile so you can see this at a
-glance instead of checking chat or the Uploads tab: a red outline for a
-blackzone, translucent amber while it's uploading, translucent green once
-it's uploaded (this run or a past one) - the same idea as mods like
-NewerNewChunks coloring chunks by render version. Tracks pan and zoom, and
-never blocks map interaction if something goes wrong internally - it just
-stops drawing for that session rather than risking the map screen.
+### The ARGUS screen
+Open it with `/argus gui`, the **ARGUS Menu** button on the pause screen, or a key you
+bind in Controls. Tabs: **General, Token, Servers, Blackzones, Stats, Uploads, Auto-map,
+Bounty, Road Dept.** and **API**. Everything in them does the same as the matching chat
+command. The Uploads tab shows the current run live - a progress bar, how many are
+done, waiting or failed - and holds the live and whole-map switches.
 
-## Security: the API token
+### Servers, stats and extras
+- **Servers and layers.** ARGUS asks for a "layer" rather than a server name, so the mod
+  keeps a small list of servers (6b6t is built in) and picks the right layer when you
+  join. Add others with `/argus server add`.
+- **Discord stats.** Point the mod at a Discord webhook and it can post how many regions
+  you've contributed, roughly how many chunks, and how far you've travelled - on demand
+  or after every upload run.
+- **Aquarius Road Department (ARD).** The nether-highway tools from the separate
+  [Aquarius Road Department](https://github.com/aquariusnetwork9/Aquarius-Road-Department)
+  project come bundled: a hazard-ahead display, hazard alerts, optional Baritone
+  auto-avoid and optional report submission (`/ard`). Not in the 26.2 build.
+- **For other mods.** A small add-on API lets other Fabric mods hear when an upload
+  finishes (counts and totals only, never a position). On by default; switch it off
+  under the API tab or with `enableAddonApi=false`.
 
-**Never put the bearer token in source code, `fabric.mod.json`, or anything
-committed to git.** The mod reads it at runtime from a local properties file:
+## Getting started
 
-```
-<minecraft config dir>/argus-mapper.properties
-```
+1. **Install** [Fabric](https://fabricmc.net/), Fabric API and - recommended -
+   Xaero's World Map, then put the ARGUS Mapper jar in your `mods` folder. For auto-map
+   and bounty flights you'll also want [Meteor Client](https://meteorclient.com); the
+   bounty needs Xaero's Minimap as well.
+2. **Get a partner token** from ARGUS.
+3. **In game**, open the screen with `/argus gui` and paste the token on the **Token**
+   tab. Joining 6b6t sets the upload layer for you; on another server use
+   `/argus setlayer <layer>`.
+4. **Upload**: drag-select on Xaero's map and right-click, or `/argus scan` then
+   `/argus upload`.
 
-The mod never ships with a key baked in, and there is no way to make it
-attempt an upload without one - `isUsable()` gates every network call on
-both `token` and `layer` being non-blank. You can supply the token two ways:
+## Privacy and safety
 
-- **In-game:** `/argus settoken <token>` and `/argus setlayer <layer>` (or
-  `/argus server use <id>` to set the layer from a known server). This
-  writes straight to the config file and is never echoed back in chat -
-  but it was typed into local chat, so consider clearing
-  `logs/latest.log` / your chat history afterwards.
-- **By hand:** copy `config.example.properties` to the path above and fill
-  it in yourself, on your own machine.
+**What gets sent.** An upload contains the region's map file, its name, the dimension, the
+layer, when the file was last changed, and your token - nothing about where you are or what
+you were doing. Nothing is sent to ARGUS unless you start an upload or switch on live
+upload. The optional bounty only downloads a public list and sends nothing about you.
 
-`.gitignore` excludes every `*.properties` file except the checked-in
-`config.example.properties` template, so a `git add -A` won't accidentally
-stage your real token.
+**Your token.** It's stored on your computer, sent only with uploads, and hidden in the
+**Token** tab unless you choose to reveal it. Paste it there rather than using
+`/argus settoken`, since chat commands can end up in the game log. If a token is ever
+exposed, ask ARGUS to replace it.
 
-If this token has already been pasted anywhere outside your own machine
-(chat, ticket, etc.), treat it as exposed and ask ARGUS to rotate it -
-scoping it out of a private conversation after the fact doesn't undo that.
-
-## Coordinate cap
-
-The mod can never scan or upload a region whose X or Z coordinate is 6
-digits or more - magnitude is capped at 99,999 (`CoordLimits`), bounding
-the whole mod to roughly a 200k x 200k block area centered on origin, in
-every dimension. This is enforced twice, independently:
-
-1. `XaeroScanner` never returns an out-of-range file in the first place -
-   it isn't in the list `/argus scan` or `/argus upload` ever sees.
-2. `ArgusUploadClient.upload()` - the only method that actually talks to
-   the network - refuses an out-of-range region on its own, even if
-   something else were to hand it one directly.
-
-`/argus scan` reports how many region files were skipped for this reason.
-
-## Nether highway privacy gate
-
-Nether coordinates are worth more than overworld ones - 1 nether block equals
-8 overworld blocks, so off-highway nether terrain hints at a proportionally
-larger overworld area than the equivalent overworld region would. On top of
-the coordinate cap above, `restrictNetherToHighways` (default **on**) adds a
-second, nether-specific restriction: a nether region can only be uploaded if
-it comes within [ARD](#aquarius-road-department-ard)'s reporting tolerance of
-a road ARD's own protocol already treats as public, contested infrastructure
-(PROTOCOL.md §3) - never an arbitrary off-highway area.
-
-This is a coarse, **region-level** gate, not pixel-level redaction of a
-region's interior - a 512-block Xaero region that a highway just clips at one
-edge still uploads in full. Redacting the interior of Xaero's own tile format
-would need actually decoding and re-encoding it, a much bigger undertaking;
-this is the privacy-conservative middle ground between "upload everything"
-and that.
-
-How it decides, in `core/HighwayProximity.java` (fully unit tested) plus the
-`fabric-common` glue that feeds it live geometry:
-
-1. Convert the region's Xaero index to its real nether block bounding box
-   (`regionX*512 .. regionX*512+511`, same for Z).
-2. Fetch ARD's own live road table for the current server from its fully
-   public `GET /geometry/<server>` route (PROTOCOL.md §7 - no token, and this
-   mod maintains its own fetch independent of ARD's reporter/HUD modules, so
-   it stays correct even if you have ARD's own reporting disabled).
-3. Apply ARD's road-set policy (PROTOCOL.md §3) per road: an `axis` road is
-   allowed everywhere; a ring/diamond/grid road only within ARD's
-   near-spawn radius. Applied conservatively - a road that's ambiguous at
-   this coarse per-road check is treated as *not* eligible, never the
-   reverse.
-4. Test whether the region's box comes within ARD's own reporting tolerance
-   of any eligible road segment (exact line-vs-box geometry, not sampling).
-
-**Fails closed:** if ARD's geometry hasn't loaded yet for the current server
-(not yet fetched, server unrecognized, network hiccup), *every* nether region
-is excluded until it has - never "allow through because we can't check yet."
-`/argus scan` reports both how many regions this excluded and whether
-geometry simply hasn't loaded. Overworld and end uploads are completely
-unaffected either way. Set `restrictNetherToHighways=false` in the config to
-disable this (not recommended).
-
-The [26.2](26.2/NOTES.md) build does not bundle ARD (see below), so it has no
-verified way to check highway-adjacency at all - there, this setting instead
-excludes *all* nether regions outright while it's on, rather than silently
-skipping the check.
-
-## Blackzones
-
-A blackzone is a user-declared rectangle (dimension + region-file bounds)
-that is **never** uploaded, permanently, until you remove it yourself -
-independent of the coordinate cap and the nether highway gate above, for
-the areas you specifically don't want ARGUS to ever see rather than areas
-excluded by a general policy. Local-only: a blackzone is never sent
-anywhere, and nothing about *what* you've blackzoned - not even that a
-blackzone exists - is visible in the uploaded data itself, since the
-uploader simply never attempts those region files in the first place.
-
-Enforced twice, independently, same pattern as the coordinate cap:
-
-1. `UploadRunner`'s own filter excludes a blackzoned region before it's
-   ever queued - it never shows up in the "to upload" count.
-2. `ArgusUploadClient.upload()` - the only method that actually talks to
-   the network - refuses a blackzoned region on its own, even if
-   something else were to hand it one directly.
-
-`/argus scan` and `/argus upload` both report how many regions were
-excluded this way. Declare one two ways:
-
-- **Chat:** `/argus blackzone add <id> <dimension> <minX> <minZ> <maxX>
-  <maxZ> [label]` (region-file coordinates - the numbers in a Xaero
-  filename like `3_-1.zip`, not block or chunk coordinates).
-  `/argus blackzone list` / `/argus blackzone remove <id>` manage them.
-- **On the map** (1.21.11 only for now): see
-  [Xaero's World Map integration](#xaeros-world-map-integration) above.
-
-A blackzone is scoped to the layer active when it was created (multiple
-servers can reuse the same region coordinates without colliding), and
-stored locally at `<config dir>/argus-mapper-blackzones.properties` -
-excluded from `.gitignore`'s properties-file rule the same way the main
-config is, so it's never accidentally committed.
-
-## Config file (`argus-mapper.properties`)
-
-See `config.example.properties` for the full set of fields with comments.
-Beyond the API basics (`apiBaseUrl`, `token`, `layer`), notable ones:
-
-- `xaeroRootOverride` - see "How region files are found" below.
-- `discordWebhookUrl` / `autoReportToDiscord` - see "Discord" below.
-- `discordApplicationId` / `enableRichPresence` - reserved, **not
-  implemented yet**, see "Discord Rich Presence" below.
+**Every risky switch asks first.** Live upload, whole-map upload, removing a blackzone,
+auto-map and the bounty flight each have their own confirmation, and the two upload
+switches are never saved.
 
 ## Commands
 
-- `/argus scan [dimension]` - dry run. Reports which Xaero root folder(s) it
-  found, how many region files are pending per dimension, how many are
-  already marked uploaded, how many are over the size limit, and how many
-  were skipped by the coordinate cap. **Always run this before
-  `/argus upload`.**
-- `/argus upload [dimension]` - starts the rate-limited upload run in the
-  background (does not block the game). Progress posts to chat periodically.
-- `/argus status` / `/argus cancel` - check or stop an active run.
-- `/argus reload` - re-reads the config file from disk.
-- `/argus config` - prints the config file path and non-secret settings.
-  Never prints the token.
-- `/argus settoken <token>` / `/argus setlayer <layer>` - set those two
-  fields from in-game (see "Security" above).
-- `/argus server` - auto-detects the current server from its address and
-  applies the matching profile's layer, if exactly one is known.
-- `/argus server list` - lists registered server profiles.
-- `/argus server use <id>` - manually apply a known profile's layer.
-- `/argus server add <id> <layer> <matchSubstring1,matchSubstring2,...>` -
-  register a new server (e.g. when ARGUS expands to another anarchy
-  server), so future joins auto-detect it too.
-- `/argus discord sethook <url>` - set the Discord webhook URL.
-- `/argus discord test` - send a test message to confirm the webhook works.
-- `/argus discord report` - manually post current stats (regions
-  contributed, approximate chunks, distance traveled) to Discord.
-- `/argus blackzone add <id> <dimension> <minX> <minZ> <maxX> <maxZ>
-  [label]` / `/argus blackzone list` / `/argus blackzone remove <id>` -
-  manage blackzones (see "Blackzones" below).
-- `/argus gui` - opens the [GUI](#gui) (see above) - everything above also
-  works as a screen, not just chat commands.
+| Command | What it does |
+|---|---|
+| `/argus gui` | Open the ARGUS screen. |
+| `/argus scan [dimension]` | Preview what would upload, and what would be skipped and why. |
+| `/argus upload [dimension]` | Upload everything eligible. |
+| `/argus status` / `/argus cancel` | Check or stop the current run. |
+| `/argus live [on\|off\|resume]` | Live upload; with no argument, shows its status. |
+| `/argus wholemap [on\|off]` | Whole-map upload; with no argument, shows its status. |
+| `/argus blackzone add\|list\|remove` | Manage blackzones. |
+| `/argus automap [start <minRX> <minRZ> <maxRX> <maxRZ>\|calibrate\|stop\|status]` | Fly a box of the map for you. |
+| `/argus bounty [on\|off\|refresh\|clear\|status\|go [2x\|nearest]]` | Show the bounty on the map; `go` flies to one and maps it. |
+| `/argus settoken` / `/argus setlayer` | Set your token and layer. |
+| `/argus server [list\|use\|add]` | Server detection and the server list. |
+| `/argus discord sethook\|test\|report` | Discord stats. |
+| `/argus config` / `/argus reload` | Show your settings / re-read the settings file. |
 
-## How region files are found
+## Settings
 
-Xaero's World Map stores each 512x512-block region as `<regionX>_<regionZ>.zip`
-under a per-world folder - `xaero/world-map/<world>/...` on current versions,
-`XaeroWorldMap/<world>_<dim>/...` on older ones. Dimension subfolders are
-named `DIM-1` (nether) and `DIM1` (end); anything else defaults to overworld.
-A `caves/` branch holds cave-mode regions and is skipped unless
-`includeCaves=true`.
+Everything is in the GUI; the same options live in
+`<minecraft config folder>/argus-mapper.properties` (see `config.example.properties`
+for the full list). The ones people change:
 
-Xaero also keeps its own multi-zoom-level render cache alongside the real
-`.zip` saves, as `.xwmc` (and `.xwmc.outdated` for a superseded entry) under
-numbered `cache`/`cache_1`/`cache_2`/... subfolders - confirmed live against
-a real 6b6t session, not guessed. That's a disposable rendering artifact,
-never real region data (it doesn't get "promoted" into a `.zip`), and
-`XaeroScanner` never treats it as such - a version of this mod briefly did,
-on the mistaken assumption that Xaero had switched formats entirely, and
-that caused a real upload to fail against ARGUS's own backend (HTTP 400
-`render_failed`, since a `.xwmc` filename isn't a real region save at all).
+- `uploadConcurrency` - how many files upload at once (1-8, default 4).
+- `reuploadChangedRegions` - re-send regions you've explored more of (off).
+- `restrictNetherToHighways` - the Nether privacy gate (on).
+- `includeCaves` - also upload cave layers (off).
+- `xaeroRootOverride` - point at the exact Xaero folder if the mod picks the wrong one.
+- `autoMapCruiseY`, `autoMapMaxSpeed`, `autoMapSpeed` - height and speeds for flights.
+- `bountyEnabled`, `bountyLimit` - the bounty switch and how many cells to show (50).
+- `enableAddonApi`, `discordWebhookUrl`, `autoReportToDiscord`.
 
-**Caveat:** Xaero sanitizes server addresses / world names when building
-these folder names, and the exact rule isn't public and varies by version.
-Rather than guess it exactly, the scanner does a fuzzy (case-insensitive
-"contains") match against your current world/server identifier, and
-`/argus scan` always shows you what it found so you can catch a wrong match
-and set `xaeroRootOverride` to the exact absolute path instead.
+Live and whole-map upload are deliberately not settings.
 
-## Servers and layers (multi-server support)
+## Good to know
 
-The ARGUS API takes a `layer` parameter, not a server name, so this mod
-maps "which anarchy server am I on" to "which layer do I upload to" via a
-small registry (`argus-mapper-servers.properties`, alongside the main
-config), seeded with one entry from the API example this mod was built
-against: `6b6t -> shallowplague`, matched by any address containing
-`6b6t`.
-
-Auto-detection matches the address the client actually connected with -
-for an anarchy server like 6b6t that's reached through one public hostname
-(e.g. `play.6b6t.org`) routing to any of several backend addresses the
-client never sees, that's fine, because Minecraft's client only ever
-records the address as the player typed it, not whatever it got routed to
-- so matching against known hostnames/domains works regardless of backend
-routing. Auto-detection runs on every server join and only speaks up in
-chat for a real match or an ambiguous one; joining an unrelated server
-stays silent.
-
-To add a second server once ARGUS expands: `/argus server add 2b2t
-<layer-name> 2b2t,2builders2tools` (comma-separated match substrings).
-
-## Aquarius Road Department (ARD)
-
-[Aquarius Road Department](https://github.com/aquariusnetwork9/Aquarius-Road-Department)
-is a separate, privacy-engineered project: crowdsourced nether-highway
-condition reporting (holes, lava, obstructions, campers) whose entire wire
-protocol is built so that **an off-highway coordinate is unrepresentable** -
-there's no `(x, z)` field anywhere on the wire, only a 1-D
-`(road, seg, along)` position re-derived from a public road table. See
-[its PROTOCOL.md](https://github.com/aquariusnetwork9/Aquarius-Road-Department/blob/main/PROTOCOL.md)
-for the full contract.
-
-Its Fabric client (`client-fabric`) is bundled into this mod as a second,
-fully independent feature set - own package
-(`com.aquariusnetwork.highwayconditions`), own config file (`ard.json`), own
-mod initializer, registered alongside `ArgusUploaderClientMod` in the same
-`fabric.mod.json`. Neither module reaches into the other's internals; the
-only place they touch at all is the nether privacy gate above, which uses
-ARD's *public, unauthenticated* geometry read, not its reporter/HUD modules.
-Ported as close to verbatim as possible from ARD's own repository - the
-privacy-critical gate logic (`net/Geo.java`, `net/Report.java`, the
-obstruction detector) is copied unchanged rather than reimplemented, exactly
-as ARD's own README states it does between its own producers ("byte-for-byte
-the same files").
-
-**What it adds**, all commands under `/ard` (see ARD's own
-[client-fabric/README.md](https://github.com/aquariusnetwork9/Aquarius-Road-Department/blob/main/client-fabric/README.md)
-for full detail):
-
-- **Hazard-ahead HUD** - on by default, a pure read against ARD's public
-  `/conditions/<server>` route, zero privacy cost, independent of whether
-  you report anything yourself.
-- **Local hazard alert** - an always-on, zero-network detection of an
-  obstruction right in front of you, and a public Fabric event
-  (`api.LocalHazardEvents`) other mods (a Meteor addon, a Baritone add-on)
-  can hook into directly.
-- **Optional Baritone auto-avoid** - opt-in (`/ard baritone on|off`, off by
-  default), zero compile/runtime dependency on Baritone (reflection-probed,
-  degrades to "disabled" if Baritone isn't present or its API doesn't match).
-- **Report submission** - opt-in (`/ard reporting on|off`, off by default):
-  contributes your own on-highway observations back to ARD's network.
-- **Account linking** (`/ard link` + `/ard token <value>`) - reach Tier B
-  (PROTOCOL.md §6) via a device-code-style Discord link flow.
-
-**Per-Minecraft-version differences**, matched to ARD's own documented API
-research rather than guessed (see each fork's javadoc): the HUD registration
-call (`HudRenderCallback` on 1.21.4 vs `HudElementRegistry` on 1.21.8/1.21.11),
-the account-linking session-service accessor (`getSessionService()` on
-1.21.4/1.21.8 vs `getApiServices().sessionService()` on 1.21.11), and the
-`ClickEvent` construction shape (old `ClickEvent(Action, String)` on 1.21.4
-vs the newer sealed `ClickEvent.OpenUrl(URI)` on 1.21.8/1.21.11). These three
-files (`HighwayConditionsFabricClient.java` and
-`command/HighwayConditionsCommand.java`) live per-version in each MC folder's
-own `ard-src/`; everything else is one shared copy in `ard-common/`.
-
-**Not included in the 26.2 build**: ARD itself has no 26.2 port yet, and its
-considerably larger vanilla-API surface (HUD registration, the Mojang
-session service, Baritone reflection) is a separate, later port from the
-Xaero World Map integration 26.2 already has (see
-[26.2/NOTES.md](26.2/NOTES.md)). 26.2 gets none of the `/ard` commands or
-HUD, and its nether privacy gate falls back to excluding all nether regions
-outright (see above) rather than checking highway-adjacency it has no
-verified way to check.
-
-## Discord
-
-### Webhook reporting (implemented)
-
-`/argus discord sethook <url>` takes a webhook URL from a Discord channel's
-Integrations settings - no bot, no gateway connection, just one HTTP POST
-per report. `/argus discord report` sends one immediately; setting
-`autoReportToDiscord=true` sends one automatically after every upload run
-that had at least one success. The embed includes:
-
-- **Regions contributed** - exact, from the upload manifest.
-- **~Chunks contributed** - `regions x 1024` (a 512x512 region is 32x32
-  chunks); labeled "~" because this is a count of chunks *covered*, not
-  chunks whose data actually changed, since that would mean unzipping and
-  diffing every region.
-- **Distance traveled** - accumulated every tick while the mod is loaded
-  (any world, not just ARGUS-registered servers), with single-tick jumps
-  over 50 blocks discarded so `/home`, `/tp`, etc. can't inflate it. Not
-  reset between sessions.
-
-### Discord Rich Presence (not yet implemented)
-
-This needs two things I didn't want to build blind:
-
-1. **A real IPC library.** Discord Rich Presence talks to the local
-   Discord client over a native IPC socket, not HTTP - it isn't something
-   to hand-roll safely alongside a "harden and test before deployment"
-   pass. The usual choice in the Minecraft modding space is
-   [`jagrosh/DiscordIPC`](https://github.com/jagrosh/DiscordIPC), but it's
-   distributed via JitPack, not Maven Central, and I did not verify its
-   current coordinates/version live - pin it yourself, or say the word and
-   I'll verify and wire it in as a follow-up.
-2. **A Discord Application ID.** Rich Presence is tied to a Discord
-   "Application" - create one for ARGUS at
-   https://discord.com/developers/applications, copy its Application ID,
-   and put it in `discordApplicationId`.
-
-`enableRichPresence` and `discordApplicationId` already exist in the config
-so adding this later doesn't need another config migration.
-
-## Rate limiting
-
-The API allows 200 requests / 10 min and asks for ~1 region every 3s, and
-200 regions per `batchId`. The runner sends strictly one request at a time,
-waiting `paceMillis` (default 3000ms, measured from the end of one response
-to the start of the next) before the next send - 200 requests at a 3s
-cadence is exactly 600s, so normal pacing alone keeps you inside both limits.
-A fresh `batchId` is generated automatically every `maxPerBatch` regions.
-
-Already-uploaded regions (tracked per dimension+filename in
-`<config dir>/argus-mapper-manifest.txt`) are skipped on subsequent runs,
-so a big first export can safely be split across multiple `/argus upload`
-invocations/sessions.
-
-## Testing
-
-`core/` has a real JUnit 5 test suite (`core/src/test/java`) covering the
-coordinate cap, dimension classification, the region scanner (including
-the caves and out-of-range-coordinate exclusions), config round-tripping,
-the upload manifest, the server registry and its address matching, the
-Discord embed JSON builder, and - importantly - that
-`ArgusUploadClient.upload()` refuses an out-of-range region *without
-making a network call*, not just that the scanner filters it out
-upstream. `fabric-common` and the version modules aren't unit tested
-(they're thin Minecraft-API glue); coverage there is a manual, in-game
-pass instead, since it needs a running client - see
-[MANUAL_TEST_PLAN.md](MANUAL_TEST_PLAN.md) for the checklist covering
-blackzones, the Uploads tab, and the Xaero map integration.
-
-## CI
-
-`.github/workflows/build.yml` runs on every push/PR:
-
-- **Core unit tests** - actually executes the test suite above and
-  uploads the report as a build artifact.
-- **Build 1.21.11** - a real build, uploading its mod jar as an artifact.
-  1.21.4 and 1.21.8 are no longer built/released here as of v0.3.0: 6b6t
-  (the actual target server) now requires 1.21.11+ to join at all, so a
-  jar for either older version could never be used against it. Both
-  modules still exist and still compile locally (`gradle :1.21.4:build`).
-- **Build 26.2** - `continue-on-error: true` so a failure here never
-  blocks the 1.21.11 build/release above, since the full upload/overlay
-  flow isn't yet confirmed live end-to-end on this version - see
+- **Where the map files come from.** Xaero saves each 512 x 512 block region as a file
+  named like `3_-1.zip` in its own folder for each world. The mod finds the right folder
+  for your current server; `/argus scan` always says which one it used, and
+  `xaeroRootOverride` fixes a wrong guess. Only real region saves are sent - Xaero's
+  temporary cache isn't.
+- **Upload logs.** Each upload run writes a plain-text log to `argus-mapper-upload-log`
+  in your game folder (the newest 30 are kept) showing how it went, including how fast
+  ARGUS replied and any slowdowns. Your token is never written to it.
+- **What's already uploaded** is remembered in `argus-mapper-manifest.txt`, so a big first
+  upload can be split across sessions.
+- **Minecraft 26.2** has everything above except auto-map, the calibration flight, the
+  bounty, the Road Department tools, the distance-travelled stat and the real
+  Nether-highway check (it leaves out Nether regions while the Nether gate is on). See
   [26.2/NOTES.md](26.2/NOTES.md).
 
-No Gradle wrapper is committed - CI installs Gradle directly via
-`gradle/actions/setup-gradle`'s `gradle-version` input, and
-`org.gradle.toolchains.foojay-resolver-convention` (in `settings.gradle`)
-lets Gradle auto-download whatever JDK each module's toolchain asks for
-(17/21/25) instead of requiring them all pre-installed.
+## For developers
 
-`fabric-loom` itself is published only on Fabric's own Maven
-(`https://maven.fabricmc.net/`), not on the Gradle Plugin Portal - it needs
-a `pluginManagement { repositories { ... } }` block in `settings.gradle`
-naming that repository, or every build fails at configuration time with
-"Plugin [id: 'fabric-loom' ...] was not found in any of the following
-sources" no matter how correct the version number is. (This is what broke
-CI outright from the first commit through 2026-09-14 - both prior pushes
-show as failed runs in the Actions tab; nothing after that root cause was
-ever actually verified against a real build until it was fixed.)
-
-## Releasing
-
-Pushing a `v*` tag (e.g. `git tag v0.2.0 && git push origin v0.2.0`) runs
-the full build/test matrix against that commit and, if it's green, a
-`release` job rebuilds the 1.21.11 jar (and 26.2's, best-effort)
-with `-Pversion=<tag without the leading v>` so each jar's own
-`fabric.mod.json` reports the version it actually shipped under, then
-publishes a GitHub Release with all of them attached via `gh release
-create`. A plain push to `main` still only builds and tests - it never
-publishes anything. `gradle.properties`' `version=0.1.0` is just the
-fallback for a local/branch build; a release always overrides it from the
-tag.
-
-## Building locally
-
-Each version subdirectory is a standard Fabric Loom project. Without a
-committed wrapper, either open the repo root in an IDE with Gradle support
-(it'll offer to set one up), or install Gradle yourself and run e.g.
-`gradle :1.21.11:build` from the repo root. You'll need the JDK each
-module's `build.gradle` specifies (21 for the 1.21.x line, 25 for 26.2) -
-or let the foojay resolver plugin fetch it automatically.
+- `core/` is plain Java with no Minecraft code (scanning, limits, blackzones, uploading,
+  live upload, the bounty and auto-map logic) and has a JUnit test suite.
+- `fabric-common/` is the shared game-facing code; `1.21.11/` and `26.2/` are the two
+  Fabric Loom projects that ship. `1.21.4/` and `1.21.8/` are legacy (see above) and
+  are not built anywhere.
+- Build locally with Gradle, e.g. `gradle :1.21.11:build`; the JDK each module needs is
+  fetched automatically. The manual checklist is [MANUAL_TEST_PLAN.md](MANUAL_TEST_PLAN.md).
+- CI (`.github/workflows/build.yml`) runs the core tests and builds 1.21.11 and 26.2 on every
+  push. Pushing a tag such as `v1.0.0` publishes a GitHub Release with both jars.
