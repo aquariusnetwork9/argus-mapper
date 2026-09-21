@@ -136,6 +136,11 @@ waystone; the tab (and chat) keep you posted - where you are in the line, when t
 on its way. The moment the bot is ready at the waystone, **the mod sends the `/tpa` request
 to it for you**, and you're teleported once it accepts. You never have to type anything.
 
+The tab also has a **bot name** box. Leave it empty and the mod uses whichever bot ARGUS says
+is delivering (the name shows greyed out in the box, and a line above it says what will be
+used). Type a name and that is used instead. If ARGUS hasn't said and you haven't typed one,
+the mod tells you when the bot is ready and leaves the `/tpa` to you.
+
 You can also **see the waystones on Xaero's World Map**. Turn on **Show waystones on the
 Xaero map** and each waystone in the dimension you're in gets a purple marker named **ARGUS
 Waystone: <name>** (temporary, world map only). Right-click a marker and choose
@@ -241,8 +246,8 @@ for the full list). The ones people change:
 - `xaeroRootOverride` - point at the exact Xaero folder if the mod picks the wrong one.
 - `autoMapCruiseY`, `autoMapMaxSpeed`, `autoMapSpeed` - height and speeds for flights.
 - `bountyEnabled`, `bountyLimit` - the bounty switch and how many cells to show (50).
-- `waystoneMarkers` - show waystones on Xaero's World Map (off); `waystoneBotName` - only
-  needed if ARGUS doesn't tell the mod which player to `/tpa`.
+- `waystoneMarkers` - show waystones on Xaero's World Map (off); `waystoneBotName` - the bot
+  name you typed on the Waystones tab, empty to use the one ARGUS gives.
 - `enableAddonApi`, `discordWebhookUrl`, `autoReportToDiscord`.
 
 Live and whole-map upload are deliberately not settings.

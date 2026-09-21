@@ -62,6 +62,7 @@ class WaystoneParserTest {
         assertFalse(status.busy());
         assertEquals(2, status.queued());
         assertEquals(45, status.secondsUntilReady());
+        assertTrue(status.bots().isEmpty(), "no bot name unless ARGUS gives one");
 
         TokenInfo info = WaystoneParser.tokenInfo(
                 "{ \"ok\": true, \"ign\": \"Wraith_k25\", \"balance\": 8, \"earned\": 10, \"spent\": 2, \"regions\": 50, \"regionsPerToken\": 5 }");
@@ -94,6 +95,20 @@ class WaystoneParserTest {
         assertTrue(WaystoneParser.teleportStatus("{\"status\":\"failed\",\"error\":\"bot died\"}").isFinished());
         assertTrue(WaystoneParser.teleportStatus("{\"status\":\"expired\"}").isFinished());
         assertEquals("mun2", WaystoneParser.teleportStatus("{\"status\":\"ready\",\"bot\":\"mun2\"}").bot());
+    }
+
+    @Test
+    void readsTheBotNamesWhenAReplyGivesThem() {
+        assertEquals(List.of("mun_bot"), WaystoneParser.systemStatus("{\"online\":true,\"botIgn\":\"mun_bot\"}").bots());
+        assertEquals(List.of("a_bot", "b_bot"),
+                WaystoneParser.systemStatus("{\"online\":true,\"bots\":[\"a_bot\",\"b_bot\",\"a_bot\"]}").bots());
+        assertEquals(List.of("one", "two"), WaystoneParser.systemStatus(
+                "{\"online\":true,\"bots\":[{\"ign\":\"one\"},{\"name\":\"two\"}]}").bots());
+        assertEquals(List.of("good_one"), WaystoneParser.systemStatus(
+                "{\"online\":true,\"bots\":[\"bad name\",\"/op me\",\"good_one\",7,null]}").bots(),
+                "anything that isn't a plain username is dropped");
+        assertEquals("mun_bot", WaystoneParser.teleportStatus("{\"status\":\"ready\",\"bots\":[\"mun_bot\"]}").bot());
+        assertEquals("", WaystoneParser.teleportStatus("{\"status\":\"ready\",\"botIgn\":\"not valid!\"}").bot());
     }
 
     @Test

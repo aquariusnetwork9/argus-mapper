@@ -767,6 +767,8 @@ public final class ArgusGuiScreen extends Screen {
     private int waystoneStatusY;
     private int waystonePage;
     private int waystoneBuiltVersion = -1;
+    private int waystoneBotLabelY;
+    private TextFieldWidget waystoneBotField;
 
     private void buildWaystonesTab(int top) {
         Waystones.touchTab();
@@ -777,6 +779,16 @@ public final class ArgusGuiScreen extends Screen {
         y += 40;
 
         y = toggleRow(y, "Show waystones on the Xaero map", Waystones.markersEnabled(), Waystones::setMarkersEnabled);
+
+        waystoneBotLabelY = y;
+        y += 10;
+        waystoneBotField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, panelW - PAD * 2, ROW_H, Text.empty());
+        waystoneBotField.setMaxLength(16);
+        waystoneBotField.setTextPredicate(s -> s.matches("[A-Za-z0-9_]*"));
+        waystoneBotField.setText(Waystones.manualBotName());
+        waystoneBotField.setChangedListener(Waystones::setManualBotName);
+        addDrawableChild(waystoneBotField);
+        y += ROW_H + ROW_GAP;
 
         List<Waystone> all = Waystones.sortedFor(mc);
         int rowStep = ROW_H + ROW_GAP + 2;
@@ -817,6 +829,11 @@ public final class ArgusGuiScreen extends Screen {
         }
         int y = waystoneStatusY;
         int width = panelW - PAD * 2;
+        if (waystoneBotField != null) {
+            waystoneBotField.setSuggestion(waystoneBotField.getText().isEmpty() ? Waystones.botSuggestion() : "");
+        }
+        context.drawTextWithShadow(this.textRenderer, this.textRenderer.trimToWidth(Waystones.botNameLine(), width),
+                panelX + PAD, waystoneBotLabelY, MUTED);
         context.drawTextWithShadow(this.textRenderer, this.textRenderer.trimToWidth(Waystones.accountLine(), width),
                 panelX + PAD, y, TITLE_COLOR);
         context.drawTextWithShadow(this.textRenderer, this.textRenderer.trimToWidth(Waystones.botLine(), width),

@@ -172,6 +172,63 @@ public final class Waystones {
         return flowText;
     }
 
+    /** What the mod would type for the bot right now, and where that name came from. */
+    private record BotChoice(String name, String source) {
+    }
+
+    private static BotChoice chooseBot(String assignedByTeleport) {
+        var manual = BotName.validate(config().waystoneBotName);
+        if (manual.isPresent()) {
+            return new BotChoice(manual.get(), "set by you");
+        }
+        var assigned = BotName.validate(assignedByTeleport);
+        if (assigned.isPresent()) {
+            return new BotChoice(assigned.get(), "from ARGUS");
+        }
+        SystemStatus status = botStatus;
+        if (status != null && status.bots().size() == 1) {
+            return new BotChoice(status.bots().get(0), "from ARGUS");
+        }
+        return null;
+    }
+
+    /** The name(s) ARGUS lists for the bot, for the text box's greyed-out hint; empty if it hasn't said. */
+    public static String botSuggestion() {
+        SystemStatus status = botStatus;
+        return status == null ? "" : String.join(", ", status.bots());
+    }
+
+    public static String manualBotName() {
+        return config().waystoneBotName;
+    }
+
+    /** Remembers a bot name the player typed; empty goes back to using the name ARGUS gives. */
+    public static void setManualBotName(String text) {
+        ArgusConfig cfg = config();
+        String cleaned = text == null ? "" : text.trim();
+        if (cleaned.equals(cfg.waystoneBotName)) {
+            return;
+        }
+        cfg.waystoneBotName = cleaned;
+        try {
+            cfg.save(ArgusUploaderClientMod.configPath());
+        } catch (IOException ignored) {
+            // the name still holds for this session
+        }
+    }
+
+    public static String botNameLine() {
+        BotChoice choice = chooseBot("");
+        if (choice != null) {
+            return "Will /tpa: " + choice.name() + " (" + choice.source() + ")";
+        }
+        SystemStatus status = botStatus;
+        if (status != null && status.bots().size() > 1) {
+            return "ARGUS lists several bots (" + botSuggestion() + ") - type the one to use";
+        }
+        return "Bot name (ARGUS hasn't said; type it if you know it)";
+    }
+
     public static String listLine() {
         if (!listProblem.isEmpty()) {
             return listProblem;
@@ -395,15 +452,21 @@ public final class Waystones {
     }
 
     private static void onReady(MinecraftClient mc, TeleportStatus status, String label, long now, boolean changed) {
-        String bot = BotName.validate(status.bot()).or(() -> BotName.validate(config().waystoneBotName)).orElse(null);
-        if (bot == null) {
+        BotChoice choice = chooseBot(status.bot());
+        if (choice == null) {
             flowText = "The bot is ready at " + label + " - send it a /tpa yourself.";
             if (!warnedNoBot) {
                 warnedNoBot = true;
-                feedback(mc, "The bot is ready at " + label + ", but I don't know its name. Send it a /tpa yourself "
-                        + "(or set waystoneBotName in the config).");
+                feedback(mc, "The bot is ready at " + label + ", but I don't know its name. Send it a /tpa yourself, "
+                        + "or type its name in the Waystones tab so I can do it next time.");
             }
             return;
+        }
+        String bot = choice.name();
+        var assigned = BotName.validate(status.bot());
+        if (choice.source().equals("set by you") && assigned.isPresent() && !assigned.get().equals(bot) && !warnedNoBot) {
+            warnedNoBot = true;
+            feedback(mc, "Using the bot name you set (" + bot + "), but ARGUS says this teleport is with " + assigned.get() + ".");
         }
         boolean firstSend = tpaSends == 0;
         boolean resend = tpaSends < MAX_TPA_SENDS && now - lastTpaAt >= RESEND_TPA_MILLIS;

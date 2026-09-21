@@ -49,7 +49,7 @@ public final class WaystoneParser {
     public static SystemStatus systemStatus(String json) {
         Map<?, ?> m = object(json);
         return new SystemStatus(Boolean.TRUE.equals(m.get("online")), Boolean.TRUE.equals(m.get("busy")),
-                orZero(intOf(m.get("queued"))), orZero(intOf(m.get("secondsUntilReady"))));
+                orZero(intOf(m.get("queued"))), orZero(intOf(m.get("secondsUntilReady"))), botNames(m));
     }
 
     public static TokenInfo tokenInfo(String json) {
@@ -75,15 +75,39 @@ public final class WaystoneParser {
         if (!(m.get("status") instanceof String status) || status.isBlank()) {
             throw new IllegalArgumentException("the reply has no status");
         }
-        String bot = "";
+        List<String> bots = botNames(m);
+        return new TeleportStatus(status, m.get("waystone") instanceof String w ? w : "", orZero(intOf(m.get("position"))),
+                m.get("error") instanceof String e ? e : null, bots.isEmpty() ? "" : bots.get(0));
+    }
+
+    /**
+     * The delivery bot name(s) a reply mentions: {@code botIgn}, {@code bot} or {@code botName} for one,
+     * {@code bots} or {@code botIgns} for several (names, or objects with an {@code ign}/{@code name}).
+     * Only values that look like a Minecraft username are kept, in order and without repeats.
+     */
+    private static List<String> botNames(Map<?, ?> m) {
+        List<String> names = new ArrayList<>();
         for (String key : new String[]{"botIgn", "bot", "botName"}) {
-            if (m.get(key) instanceof String s && !s.isBlank()) {
-                bot = s.trim();
-                break;
+            addName(names, m.get(key));
+        }
+        for (String key : new String[]{"bots", "botIgns"}) {
+            if (m.get(key) instanceof List<?> list) {
+                for (Object item : list) {
+                    addName(names, item);
+                }
             }
         }
-        return new TeleportStatus(status, m.get("waystone") instanceof String w ? w : "", orZero(intOf(m.get("position"))),
-                m.get("error") instanceof String e ? e : null, bot);
+        return names;
+    }
+
+    private static void addName(List<String> names, Object value) {
+        Object candidate = value;
+        if (value instanceof Map<?, ?> map) {
+            candidate = map.get("ign") != null ? map.get("ign") : map.get("name");
+        }
+        if (candidate instanceof String s) {
+            BotName.validate(s).filter(name -> !names.contains(name)).ifPresent(names::add);
+        }
     }
 
     /** The {@code error} code of an error reply, or null if the body isn't one. */

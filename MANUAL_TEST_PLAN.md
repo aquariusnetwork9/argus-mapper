@@ -534,8 +534,13 @@ Waystone tokens in your balance (see the Waystones tab), Xaero's Minimap and Wor
       lines appear as it moves through queued / travelling / ready.
 - [ ] When the bot is ready the mod sends `/tpa <botname>` by itself (visible in chat), the bot
       accepts, and you arrive at the waystone; chat says "Delivered".
-- [ ] If the server doesn't say the bot's name and `waystoneBotName` is empty: the mod tells
-      you it's ready and to send the /tpa yourself (nothing is typed for you).
+- [ ] Bot name box: with it empty and ARGUS giving a bot name, the name shows greyed out in the
+      box and the line above says "Will /tpa: <name> (from ARGUS)". Typing a name switches the
+      line to "(set by you)" and that name is used; clearing the box goes back to ARGUS's.
+- [ ] If ARGUS lists several bots and none is chosen, the line says to type the one to use, and
+      when a teleport is ready with no name known the mod tells you to send the /tpa yourself
+      (nothing is typed for you).
+- [ ] The box only accepts letters, digits and underscores (max 16).
 - [ ] Errors read clearly: no balance ("You don't have a Waystone token"), a teleport already
       in progress, bot offline, no username set, wrong token.
 - [ ] `/argus waystone` shows the state; `/argus waystone cancel` stops watching mid-teleport.
