@@ -39,11 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # 1.21.4 and 1.21.8 modules still exist and are still developed (see their own gui-src/ and
-      # MANUAL_TEST_PLAN.md) but are deliberately no longer built/released here as of the v0.3.0
-      # release: the actual target server (6b6t) now kicks anything below 1.21.11 with "Unsupported
-      # Minecraft version. Join with Minecraft 1.21.11 or newer.", so a jar for either version can
-      # never actually be used against it. Build them locally (`gradle :1.21.4:build`) if needed.
+      # 1.21.4 and 1.21.8 are legacy and out of band: not built, released, updated or supported.
+      # Their folders stay in the repo as a record only. Do not add them back to this matrix.
       matrix:
         mcVersion: ['1.21.11']
     steps:
@@ -119,9 +116,7 @@ jobs:
       # every jar's own fabric.mod.json version matches the tag it ships
       # under, instead of the "unspecified" default from a plain build.
       #
-      # 1.21.4 and 1.21.8 deliberately excluded as of the v0.3.0 release: 6b6t (the actual target
-      # server) now requires 1.21.11+ to join at all, so a release jar for either older version
-      # could never be used against it. See build-1-21-x's own comment above for the full story.
+      # 1.21.4 and 1.21.8 are legacy and are never part of a release (see build-1-21-x above).
       - name: Build 1.21.11 jar at release version
         run: gradle --configure-on-demand ':1.21.11:build' -Pversion=${{ steps.ver.outputs.version }}
       - name: Build 26.2 jar at release version
