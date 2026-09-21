@@ -379,7 +379,7 @@ box first (one or two regions) somewhere quiet.
       **Auto-Map This Area (ARGUS)** opens a popup with the area, lane count and a
       time estimate. **Cancel** returns to the map; **Start** closes it and flies.
 - [ ] It heads for the nearest corner, then flies lanes along the longer side at
-      about Y 300, turning at the ends. Meteor's horizontal speed slider moves as it
+      about Y 475, turning at the ends. Meteor's horizontal speed slider moves as it
       runs and is back at your value afterwards.
 - [ ] Watch `/argus automap` (or the chat lines) while flying fast: speed drops when
       chunks either side of the lane are missing from the map, and creeps back up.
@@ -390,8 +390,7 @@ box first (one or two regions) somewhere quiet.
       mapped and any chunks still missing.
 - [ ] `/argus automap stop`, taking damage, `/home`, using a portal, switching
       Elytra Fly off, or disconnecting each end it with a message and release the keys.
-- [ ] Over tall terrain (a mountain range higher than Y 300 is not needed - lower
-      `autoMapCruiseY` to test): it climbs before reaching the slope instead of
+- [ ] Over tall terrain (lower `autoMapCruiseY` well below the terrain to test): it climbs before reaching the slope instead of
       hitting it.
 - [ ] With Xaero's world map not writing (or without Xaero) it says so and falls back
       to loaded chunks.

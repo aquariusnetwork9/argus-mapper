@@ -58,7 +58,7 @@ public final class ArgusConfig {
     public double autoMapMinSpeed = 1.0;
     public double autoMapSpeed = 0;
     public String autoMapWidthTable = "";
-    public int autoMapCruiseY = 300;
+    public int autoMapCruiseY = 475;
     public int autoMapHalfWidthChunks = 0;
 
     public boolean isUsable() {

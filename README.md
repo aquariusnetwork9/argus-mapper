@@ -156,7 +156,7 @@ missing if it can't start - and the speed, altitude and lane-width settings. It 
 it. Overworld and End only. Nothing about it is saved, and it always asks first.
 
 - **Path.** Back-and-forth lanes along the longer side of the box, starting at the
-  corner nearest you, at `autoMapCruiseY` (default 300) and higher over tall
+  corner nearest you, at `autoMapCruiseY` (default 475, above build height) and higher over tall
   terrain. Xaero maps a narrower strip the faster you fly - measured on 6b6t: about
   14 chunks across at 25 blocks/s, 6 at 40, 4 at 60, 2 at 92 - so faster means
   more, closer lanes. From that table (`autoMapWidthTable`, editable) it picks the

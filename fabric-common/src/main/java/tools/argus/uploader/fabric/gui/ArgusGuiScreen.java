@@ -564,7 +564,7 @@ public final class ArgusGuiScreen extends Screen {
         y += 10 + ROW_H + ROW_GAP;
         doubleField(panelX + PAD, y, cellW, "Fastest speed", cfg.autoMapMaxSpeed, v -> cfg.autoMapMaxSpeed = v);
         label("Cruise altitude", rightX, y, MUTED);
-        addDrawableChild(new LabeledSlider(rightX, y + 10, cellW, ROW_H, 100, 400, 5, cfg.autoMapCruiseY,
+        addDrawableChild(new LabeledSlider(rightX, y + 10, cellW, ROW_H, 100, 600, 5, cfg.autoMapCruiseY,
                 v -> "Y " + v, v -> cfg.autoMapCruiseY = v));
         y += 10 + ROW_H + ROW_GAP;
         label("Lane half-width (0 = from the table)", panelX + PAD, y, MUTED);
