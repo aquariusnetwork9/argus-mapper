@@ -110,6 +110,13 @@ public final class AutoUploads {
         }
     }
 
+    public static void cancelLiveRun() {
+        UploadRunner runner = autoRunner;
+        if (runner != null && runner.isRunning()) {
+            runner.cancel();
+        }
+    }
+
     public static void resumeLive() {
         coordinator.resume(System.currentTimeMillis());
     }
@@ -448,6 +455,11 @@ public final class AutoUploads {
         @Override
         public void onRegionDeferred(RegionFile region) {
             heldLater.incrementAndGet();
+        }
+
+        @Override
+        public void onHeldForMapping(int held) {
+            feedback(client, "Live upload: " + held + " region(s) are still being auto-mapped, so they were left out.");
         }
 
         @Override

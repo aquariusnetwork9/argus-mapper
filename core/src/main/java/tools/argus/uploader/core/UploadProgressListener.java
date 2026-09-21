@@ -23,6 +23,10 @@ public interface UploadProgressListener {
     default void onRegionStarted(RegionFile region) {
     }
 
+    /** Regions left out because an auto-map flight is still writing them; fired right after {@link #onSummary}. */
+    default void onHeldForMapping(int held) {
+    }
+
     /** A queued region the run dropped just before sending; it is not recorded, so a later run picks it up. */
     default void onRegionDeferred(RegionFile region) {
     }

@@ -89,6 +89,10 @@ public final class ArgusUploadClient {
             return CompletableFuture.completedFuture(new UploadResult(-1, null, new IOException(
                     "Refusing to upload " + region.filename() + ": covered by a blackzone.")));
         }
+        if (UploadHold.isHeld(region)) {
+            return CompletableFuture.completedFuture(new UploadResult(-1, null, new IOException(
+                    "Refusing to upload " + region.filename() + ": its area is still being auto-mapped.")));
+        }
         HttpRequest request;
         try {
             String url = config.apiBaseUrl

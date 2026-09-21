@@ -16,6 +16,7 @@ import net.minecraft.item.Items;
 import net.minecraft.text.Text;
 import net.minecraft.world.Heightmap;
 import tools.argus.uploader.core.ArgusConfig;
+import tools.argus.uploader.core.UploadHold;
 import tools.argus.uploader.core.automap.AutoMapController;
 import tools.argus.uploader.core.automap.CalibrationController;
 import tools.argus.uploader.core.automap.CalibrationReport;
@@ -48,6 +49,7 @@ public final class AutoMapper {
 
     private static final int MIN_ELYTRA_DURABILITY = 20;
     private static final int XAERO_GRACE_TICKS = 160;
+    private static final int HOLD_MARGIN_REGIONS = 1;
 
     private static volatile ChunkBox pendingBox;
     private static volatile String pendingCalibration;
@@ -88,7 +90,7 @@ public final class AutoMapper {
 
     public static String status() {
         FlightPlan current = plan;
-        return current == null ? "Off" : current.statusLine();
+        return current == null ? "Off" : current.statusLine() + " (uploads of the area held)";
     }
 
     /** Chat-command entry point: the popup opens on the next tick, after chat has closed. */
@@ -213,9 +215,10 @@ public final class AutoMapper {
         calibrating = false;
         plan = new AutoMapController(box, settings, dimension, player.getX(), player.getZ(),
                 AutoMapper::covered, AutoMapper::topY);
+        holdUploads(UploadHold.forBox(box, dimension, HOLD_MARGIN_REGIONS));
         feedback(client, "Auto-map started" + (xaero == null
                 ? " (Xaero's World Map couldn't be read, so it goes by loaded chunks)." : ".")
-                + " /argus automap stop cancels it.");
+                + " Nothing in that area is uploaded until it finishes. /argus automap stop cancels it.");
     }
 
     private static void onTick(MinecraftClient client) {
@@ -304,9 +307,15 @@ public final class AutoMapper {
         return OptionalInt.of(world.getTopY(Heightmap.Type.MOTION_BLOCKING, blockX, blockZ));
     }
 
+    private static void holdUploads(UploadHold.Area area) {
+        UploadHold.hold(List.of(area));
+        AutoUploads.cancelLiveRun();
+    }
+
     private static void end(MinecraftClient client, String reason) {
         FlightPlan finished = plan;
         plan = null;
+        UploadHold.release();
         client.options.forwardKey.setPressed(false);
         client.options.jumpKey.setPressed(false);
         client.options.sneakKey.setPressed(false);
@@ -407,6 +416,8 @@ public final class AutoMapper {
         double vertical = elytra.verticalSpeed();
         double climb = Double.isNaN(vertical) ? 0.5 : Math.max(0.1, vertical * 0.5);
         calibrationEnvironment = environmentLines(client, elytra, overlap);
+        holdUploads(UploadHold.forLine(dimension, player.getX(), player.getZ(), cardinal,
+                schedule.lengthBlocks() + 512, HOLD_MARGIN_REGIONS));
         plan = new CalibrationController(schedule, player.getX(), player.getZ(), cardinal, dimension,
                 client.options.getViewDistance().getValue(), AutoMapper::loaded, AutoMapper::writtenRaw,
                 AutoMapper::topY, config.autoMapCruiseY, 8, climb, AutoMapper::extras);

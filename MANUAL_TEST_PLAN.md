@@ -432,3 +432,19 @@ files already exist on that line.
 - [ ] Changing the speed fields, altitude and lane-width sliders and the width table,
       then **Save**, keeps them after a restart (`config/argus-mapper.properties`);
       an unparseable speed leaves the old value in place.
+
+### 17. Uploads held while auto-map runs
+
+Use a scratch layer/token, with some regions in the box already mapped and not yet uploaded.
+
+- [ ] Start an auto-map of that box. The start message says nothing in the area is
+      uploaded until it finishes, and the Auto-map tab's status ends "(uploads of the
+      area held)".
+- [ ] While it flies, `/argus upload` (or the map's Upload This Area popup, or a live
+      cycle if live is on) leaves those regions out and prints "N region(s) are still
+      being auto-mapped, so they were left out". Regions well outside the box still go.
+- [ ] `/argus automap stop` (or a finished run): the message disappears and a manual
+      upload includes the regions again.
+- [ ] Turning live upload on during a flight: its cycle skips the held regions and
+      says so; after the run, the next cycle sends them once they have been quiet 10 minutes.
+- [ ] The same holds during a calibration flight, along its line.

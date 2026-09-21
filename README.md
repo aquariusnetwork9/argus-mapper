@@ -171,6 +171,14 @@ it. Overworld and End only. Nothing about it is saved, and it always asks first.
   speed is put back afterwards.
 - **Gaps.** When the lanes are done it flies to any chunk Xaero still lacks and
   hovers until it is recorded, for up to two rounds, then reports what's left.
+- **Nothing in the area uploads while it runs.** From the moment a flight (or
+  calibration) starts until it ends - finished, stopped or aborted - the regions it
+  is writing to, plus one region around them, are held back from every upload:
+  live, manual, from the map, and again in the network call itself. A half-mapped
+  region would otherwise replace a fuller copy on the server. It's session-only and
+  cleared when the run ends; live upload then sends them after its usual
+  10-minute quiet period. Starting a flight also cancels a live upload run that is
+  in flight.
 - **Stops by itself** if you teleport, change dimension, take damage, stop
   gliding, run low on elytra durability, switch Elytra Fly off or disconnect.
   `/argus automap stop` ends it, and `/argus automap` shows progress.

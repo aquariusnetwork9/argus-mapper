@@ -70,6 +70,11 @@ public final class UploadTracker implements UploadProgressListener {
     }
 
     @Override
+    public void onHeldForMapping(int held) {
+        delegate.onHeldForMapping(held);
+    }
+
+    @Override
     public void onQueueBuilt(List<RegionFile> toUpload) {
         synchronized (rows) {
             rows.clear();

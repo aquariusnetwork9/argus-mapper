@@ -620,6 +620,11 @@ final class ArgusCommand {
         }
 
         @Override
+        public void onHeldForMapping(int held) {
+            info(source, held + " region(s) are still being auto-mapped, so they were left out.");
+        }
+
+        @Override
         public void onRegionUploaded(RegionFile region, int done, int total) {
             if (done % 10 == 0 || done == total) {
                 info(source, "Uploaded " + done + " / " + total + " (" + region.filename() + ", " + region.dimension() + ")");

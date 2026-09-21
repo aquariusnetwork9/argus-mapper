@@ -9,6 +9,7 @@ import tools.argus.uploader.core.ArgusUploadClient;
 import tools.argus.uploader.core.BlackzoneStore;
 import tools.argus.uploader.core.RegionBounds;
 import tools.argus.uploader.core.RegionFile;
+import tools.argus.uploader.core.UploadHold;
 import tools.argus.uploader.core.UploadManifest;
 import tools.argus.uploader.core.UploadProgressListener;
 import tools.argus.uploader.core.UploadRunner;
@@ -70,6 +71,7 @@ public final class MapUploadTrigger {
         List<RegionFile> scoped = resolved.regions().stream()
                 .filter(bounds::contains)
                 .filter(region -> manifest.needsUpload(region, config.reuploadChangedRegions))
+                .filter(region -> !UploadHold.isHeld(region))
                 .toList();
         long totalBytes = scoped.stream().mapToLong(RegionFile::sizeBytes).sum();
         return new Preview(scoped, totalBytes, null);
@@ -156,6 +158,11 @@ public final class MapUploadTrigger {
             feedback(client, "Starting upload of " + toUpload + " region(s) from the selected area ("
                     + alreadyUploaded + " already uploaded, " + tooLarge + " over the size limit, "
                     + excludedByBlackzone + " excluded by blackzone).");
+        }
+
+        @Override
+        public void onHeldForMapping(int held) {
+            feedback(client, held + " region(s) are still being auto-mapped, so they were left out.");
         }
 
         @Override

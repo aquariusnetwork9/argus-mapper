@@ -87,11 +87,14 @@ public final class UploadRunner {
         int alreadyUploaded = 0;
         int tooLarge = 0;
         int excludedByBlackzone = 0;
+        int held = 0;
         for (RegionFile region : found) {
             // A changed region only stops counting as "already uploaded" - it still falls through
             // to the size and blackzone checks below, so re-uploading can never bypass either.
             if (!manifest.needsUpload(region, reuploadChanged)) {
                 alreadyUploaded++;
+            } else if (UploadHold.isHeld(region)) {
+                held++;
             } else if (region.sizeBytes() > maxFileSizeBytes) {
                 tooLarge++;
             } else if (!blackzoneFilter.test(region)) {
@@ -100,10 +103,10 @@ public final class UploadRunner {
                 toUpload.add(region);
             }
         }
-        return new FilterResult(toUpload, alreadyUploaded, tooLarge, excludedByBlackzone);
+        return new FilterResult(toUpload, alreadyUploaded, tooLarge, excludedByBlackzone, held);
     }
 
-    record FilterResult(List<RegionFile> toUpload, int alreadyUploaded, int tooLarge, int excludedByBlackzone) {
+    record FilterResult(List<RegionFile> toUpload, int alreadyUploaded, int tooLarge, int excludedByBlackzone, int held) {
     }
 
     /** Equivalent to {@link #start(List, String, Predicate)} with nothing blackzoned. */
@@ -139,6 +142,9 @@ public final class UploadRunner {
                 reuploadChanged);
         List<RegionFile> toUpload = filtered.toUpload();
         listener.onSummary(found.size(), filtered.alreadyUploaded(), filtered.tooLarge(), filtered.excludedByBlackzone(), toUpload.size());
+        if (filtered.held() > 0) {
+            listener.onHeldForMapping(filtered.held());
+        }
         if (toUpload.isEmpty()) {
             return;
         }

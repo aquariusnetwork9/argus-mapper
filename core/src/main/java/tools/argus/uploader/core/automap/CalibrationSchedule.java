@@ -58,6 +58,15 @@ public final class CalibrationSchedule {
         return settleMillis + measureMillis;
     }
 
+    /** Roughly how far a straight flight through every stage goes, in blocks. */
+    public double lengthBlocks() {
+        double total = 0;
+        for (double speed : speeds) {
+            total += speed * 20.0 * stageMillis() / 1000.0;
+        }
+        return total;
+    }
+
     public long totalMillis() {
         return stageMillis() * speeds.length;
     }
