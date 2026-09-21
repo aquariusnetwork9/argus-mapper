@@ -15,8 +15,10 @@ import tools.argus.uploader.core.BlackZone;
 import tools.argus.uploader.core.RegionBounds;
 import tools.argus.uploader.core.automap.ChunkBox;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.core.bounty.BountyRegion;
 import tools.argus.uploader.fabric.AutoMapper;
 import tools.argus.uploader.fabric.BlackzoneRemoval;
+import tools.argus.uploader.fabric.Bounty;
 import tools.argus.uploader.fabric.MapUploadTrigger;
 import xaero.map.MapProcessor;
 import xaero.map.gui.GuiMap;
@@ -84,6 +86,17 @@ public abstract class MixinGuiMap {
                         selection.getRight(), selection.getBottom()), screen);
             }
         });
+
+        BountyRegion bountyHere = Bounty.regionOverlapping(selection.getLeft() * 16, selection.getTop() * 16,
+                (selection.getRight() + 1) * 16, (selection.getBottom() + 1) * 16);
+        if (bountyHere != null) {
+            options.add(new RightClickOption("argus_mapper.gui.world_map.bounty_fly", options.size(), self) {
+                @Override
+                public void onAction(Screen screen) {
+                    AutoMapper.requestBounty(bountyHere, screen);
+                }
+            });
+        }
 
         List<BlackZone> blackzonesInSelection = argusMapper$blackzonesIn(selection);
         if (!blackzonesInSelection.isEmpty()) {

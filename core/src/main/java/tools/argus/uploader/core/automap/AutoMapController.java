@@ -1,6 +1,7 @@
 package tools.argus.uploader.core.automap;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.OptionalInt;
@@ -13,8 +14,15 @@ import java.util.OptionalInt;
  */
 public final class AutoMapController implements FlightPlan {
 
+    /** @param transitSpeed how fast to fly to the box from far away before slowing to the mapping speed; 0 to not */
     public record Settings(int halfWidthChunks, double minSpeed, double maxSpeed, double startSpeed, int cruiseY,
-                           int clearance, double climbPerTick, int lagChunks, int maxRepairRounds) {
+                           int clearance, double climbPerTick, int lagChunks, int maxRepairRounds, double transitSpeed) {
+
+        public Settings(int halfWidthChunks, double minSpeed, double maxSpeed, double startSpeed, int cruiseY,
+                        int clearance, double climbPerTick, int lagChunks, int maxRepairRounds) {
+            this(halfWidthChunks, minSpeed, maxSpeed, startSpeed, cruiseY, clearance, climbPerTick, lagChunks,
+                    maxRepairRounds, 0);
+        }
     }
 
     public enum Vertical { UP, DOWN, HOLD }
@@ -37,6 +45,9 @@ public final class AutoMapController implements FlightPlan {
     private static final int OBSERVE_EVERY_TICKS = 2;
     private static final int MIN_LANE_BLOCKS_BEFORE_MEASURING = 160;
     private static final long HOVER_MILLIS = 4_000L;
+    private static final double TRANSIT_MIN_BLOCKS = 400;
+    private static final long BRAKE_MILLIS = 2_000L;
+    private static final double TRANSIT_RUBBERBAND_STEP = 0.3;
 
     private final ChunkBox box;
     private final Settings settings;
@@ -69,6 +80,15 @@ public final class AutoMapController implements FlightPlan {
     private final AltitudeHold altitude;
     private int rubberbands;
 
+    private boolean transiting;
+    private double transitNow;
+    private double transitCornerX;
+    private double transitCornerZ;
+    private double transitDistance;
+    private boolean braking;
+    private long brakeStart;
+    private double brakeFrom;
+
     public AutoMapController(ChunkBox box, Settings settings, String dimension, double startX, double startZ,
                              ChunkProbe covered, Terrain terrain) {
         this.box = box;
@@ -77,7 +97,18 @@ public final class AutoMapController implements FlightPlan {
         this.covered = covered;
         this.tracker = new CoverageTracker(box);
         this.governor = new SpeedGovernor(settings.minSpeed(), settings.maxSpeed(), settings.startSpeed());
-        this.lanes = new PathFollower(LanePlanner.plan(box, startX, startZ, settings.halfWidthChunks()));
+        List<Waypoint> path = LanePlanner.plan(box, startX, startZ, settings.halfWidthChunks());
+        double[] corner = LanePlanner.nearestCorner(box, startX, startZ);
+        transitDistance = Math.hypot(corner[0] - startX, corner[1] - startZ);
+        if (settings.transitSpeed() > settings.startSpeed() + 0.5 && transitDistance >= TRANSIT_MIN_BLOCKS) {
+            path = new ArrayList<>(path);
+            path.add(0, new Waypoint(corner[0], corner[1], false));
+            transiting = true;
+            transitNow = settings.transitSpeed();
+            transitCornerX = corner[0];
+            transitCornerZ = corner[1];
+        }
+        this.lanes = new PathFollower(path);
         this.altitude = new AltitudeHold(settings.cruiseY(), settings.clearance(), settings.climbPerTick(), terrain);
     }
 
@@ -92,7 +123,7 @@ public final class AutoMapController implements FlightPlan {
     }
 
     public double speed() {
-        return governor.speed();
+        return transiting ? transitNow : governor.speed();
     }
 
     public int rubberbands() {
@@ -115,6 +146,10 @@ public final class AutoMapController implements FlightPlan {
 
     @Override
     public String statusLine() {
+        if (transiting) {
+            return String.format("Flying to the area: %.0f blocks to go at %.2f blocks/tick, %d rubberband(s)",
+                    transitDistance, transitNow, rubberbands);
+        }
         return String.format("%s %.0f%% mapped, %.2f blocks/tick, %d rubberband(s)",
                 repairing ? "Filling gaps:" : "Flying lanes:", tracker.fraction() * 100, governor.speed(), rubberbands);
     }
@@ -158,7 +193,14 @@ public final class AutoMapController implements FlightPlan {
 
         if (!firstTick && rubberband.observe(frame.x(), frame.z(), lastYaw, lastForward)) {
             rubberbands++;
-            governor.onRubberband(now);
+            if (transiting) {
+                transitNow = Math.max(governor.speed(), transitNow - TRANSIT_RUBBERBAND_STEP);
+            } else {
+                governor.onRubberband(now);
+            }
+        }
+        if (transiting) {
+            transitDistance = Math.hypot(transitCornerX - frame.x(), transitCornerZ - frame.z());
         }
 
         int chunkX = Math.floorDiv((int) Math.floor(frame.x()), 16);
@@ -167,15 +209,24 @@ public final class AutoMapController implements FlightPlan {
             tracker.observe(chunkX, chunkZ, settings.halfWidthChunks() + 1, covered);
         }
 
-        double blocksPerTick = governor.speed();
+        double blocksPerTick = flightSpeed(now);
         boolean forward = true;
         double yaw = lastYaw;
 
         if (!repairing) {
             PathFollower.Steer steer = lanes.steer(frame.x(), frame.z(), blocksPerTick);
             yaw = steer.yawDegrees();
+            if (transiting && lanes.index() >= 1) {
+                transiting = false;
+                braking = true;
+                brakeStart = now;
+                brakeFrom = transitNow;
+                blocksPerTick = flightSpeed(now);
+            }
             trackLane(frame);
-            updateSpeed(frame, yaw, now);
+            if (!transiting) {
+                updateSpeed(frame, yaw, now);
+            }
             if (steer.finished()) {
                 beginRepair(frame);
                 if (state != State.RUNNING) {
@@ -210,12 +261,34 @@ public final class AutoMapController implements FlightPlan {
         }
 
         AltitudeHold.Result climb = altitude.update(frame.x(), frame.y(), frame.z(), yaw, blocksPerTick);
-        if (climb.speedLimit() < Double.POSITIVE_INFINITY) {
-            governor.limitTo(climb.speedLimit());
+        double commanded;
+        if (transiting || braking) {
+            commanded = Math.min(flightSpeed(now), climb.speedLimit());
+        } else {
+            if (climb.speedLimit() < Double.POSITIVE_INFINITY) {
+                governor.limitTo(climb.speedLimit());
+            }
+            commanded = governor.speed();
         }
         lastYaw = yaw;
         lastForward = forward;
-        return new Command(yaw, forward, climb.vertical(), governor.speed());
+        return new Command(yaw, forward, climb.vertical(), commanded);
+    }
+
+    /** The speed to fly this tick: flat out on the way to the box, then a quick ramp down to the mapping speed. */
+    private double flightSpeed(long now) {
+        if (transiting) {
+            return transitNow;
+        }
+        if (braking) {
+            double fraction = Math.min(1.0, (now - brakeStart) / (double) BRAKE_MILLIS);
+            if (fraction >= 1.0) {
+                braking = false;
+                return governor.speed();
+            }
+            return brakeFrom + (governor.speed() - brakeFrom) * fraction;
+        }
+        return governor.speed();
     }
 
     private void trackLane(Frame frame) {

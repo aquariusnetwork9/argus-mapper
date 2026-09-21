@@ -241,4 +241,101 @@ class AutoMapControllerTest {
         controller.abort("something else");
         assertEquals("stopped by you", controller.abortReason());
     }
+
+    private static final AutoMapController.Settings TRANSIT =
+            new AutoMapController.Settings(6, 1.0, 1.5, 1.25, 300, 8, 0.8, 4, 2, 5.99);
+
+    private static AutoMapController transitControllerFor(Sim sim, ChunkBox box) {
+        return new AutoMapController(box, TRANSIT, "overworld", sim.x, sim.z, sim.probe(), (bx, bz) -> sim.terrain.topY(bx, bz));
+    }
+
+    @Test
+    void fliesFlatOutToTheNearestCornerThenBrakesToTheMappingSpeed() {
+        Sim sim = new Sim();
+        sim.x = -6000;
+        sim.z = 250;
+        AutoMapController controller = transitControllerFor(sim, ChunkBox.ofRegions(0, 0, 0, 0));
+
+        int tick = 0;
+        double slowestBeforeCorner = Double.MAX_VALUE;
+        while (tick < 3000 && sim.x < -60) {
+            AutoMapController.Command command = controller.tick(sim.frame());
+            assertNotNull(command);
+            slowestBeforeCorner = Math.min(slowestBeforeCorner, command.horizontalSpeed());
+            sim.apply(command);
+            tick++;
+        }
+        assertEquals(5.99, slowestBeforeCorner, 0.001, "top speed the whole way to the box");
+        assertTrue(controller.statusLine().contains("Flying to the area"), controller.statusLine());
+
+        double lastSpeed = 5.99;
+        int ticksAfterCorner = 0;
+        while (ticksAfterCorner < 200) {
+            AutoMapController.Command command = controller.tick(sim.frame());
+            assertNotNull(command);
+            assertTrue(command.horizontalSpeed() <= lastSpeed + 1e-9, "only ever slows down after the corner");
+            lastSpeed = command.horizontalSpeed();
+            sim.apply(command);
+            ticksAfterCorner++;
+            if (lastSpeed <= 1.26) {
+                break;
+            }
+        }
+        assertTrue(lastSpeed <= 1.26, "should be down to the mapping speed within a few seconds, was " + lastSpeed);
+        assertTrue(ticksAfterCorner <= 90, "braking should take about two seconds, took " + ticksAfterCorner + " ticks");
+        assertTrue(sim.x >= 0 && sim.x < 200, "arrived at the west edge of the region, x=" + sim.x);
+    }
+
+    @Test
+    void doesNotBotherWithAFastTransitWhenAlreadyCloseToTheBox() {
+        Sim sim = new Sim();
+        sim.x = -200;
+        sim.z = 250;
+        AutoMapController controller = transitControllerFor(sim, ChunkBox.ofRegions(0, 0, 0, 0));
+
+        AutoMapController.Command command = controller.tick(sim.frame());
+
+        assertEquals(1.25, command.horizontalSpeed(), 0.001);
+    }
+
+    @Test
+    void aRubberbandOnTheWayInSlowsTheTransitButNotTheMappingSpeed() {
+        Sim sim = new Sim();
+        sim.x = -6000;
+        sim.z = 250;
+        AutoMapController controller = transitControllerFor(sim, ChunkBox.ofRegions(0, 0, 0, 0));
+        for (int i = 0; i < 20; i++) {
+            sim.apply(controller.tick(sim.frame()));
+        }
+
+        sim.x -= 12;
+        AutoMapController.Command afterRubberband = controller.tick(sim.frame());
+        sim.apply(afterRubberband);
+
+        assertEquals(1, controller.rubberbands());
+        assertEquals(5.69, afterRubberband.horizontalSpeed(), 0.001);
+        while (sim.x < 20) {
+            sim.apply(controller.tick(sim.frame()));
+        }
+        double speed = 99;
+        for (int i = 0; i < 80; i++) {
+            AutoMapController.Command command = controller.tick(sim.frame());
+            speed = command.horizontalSpeed();
+            sim.apply(command);
+        }
+        assertTrue(speed >= 1.24 && speed <= 1.5, "the mapping speed wasn't lowered by the rubberband: " + speed);
+    }
+
+    @Test
+    void theNearestCornerIsPulledInsideTheBox() {
+        ChunkBox box = ChunkBox.ofRegions(0, 0, 1, 1);
+
+        double[] fromWest = LanePlanner.nearestCorner(box, -5000, 900);
+        double[] fromEastSouth = LanePlanner.nearestCorner(box, 9000, 9000);
+
+        assertEquals(8, fromWest[0], 0.001);
+        assertEquals(1016, fromWest[1], 0.001);
+        assertEquals(1016, fromEastSouth[0], 0.001);
+        assertEquals(1016, fromEastSouth[1], 0.001);
+    }
 }

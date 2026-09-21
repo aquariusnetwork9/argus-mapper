@@ -489,3 +489,26 @@ Needs Xaero's Minimap and World Map, and a server in the server list (6b6t).
 - [ ] Join a server that isn't in the list: it waits ("not on a known ARGUS server").
 - [ ] `/argus bounty off`: the waypoints disappear at once and nothing more is fetched.
 - [ ] With the network blocked: "Couldn't refresh ..., will retry", old markers stay, no errors in chat.
+
+### 20. Bounty boxes and the bounty flight
+
+Bounty on (scenario 19), Meteor Elytra Fly in Vanilla mode, an elytra, you in the overworld.
+
+- [ ] Open the World Map: each bounty cell has an aqua box (border + light wash), and today's
+      2x cell is gold. They line up with the cells (1024 x 1024 blocks) and follow pan/zoom.
+- [ ] `/argus bounty off`: the boxes disappear at once.
+- [ ] Not gliding yet: `/argus bounty go` says to take off first. After taking off, it opens
+      "Fly to this bounty region and map it?" with the distance, top speed and mapping speed.
+- [ ] No: nothing changes. Yes: the flight starts, Elytra Fly's horizontal speed goes to ~5.99
+      and you head for the box's NEAREST corner; the status (`/argus automap`) says
+      "Flying to the area: N blocks to go".
+- [ ] On reaching the corner the speed drops to ~1.25 (about 25 blocks/s) within about two
+      seconds and it starts flying lanes over the box; the status changes to "Flying lanes".
+- [ ] A rubberband on the way in lowers only the transit speed, not the mapping speed.
+- [ ] `/argus automap stop`, teleporting, damage, or turning Elytra Fly off stops it, and Elytra
+      Fly's own speed setting goes back to what it was.
+- [ ] The box's regions aren't uploaded until it finishes (see scenario 17).
+- [ ] World Map: select an area over a bounty box, right-click: "Fly to Bounty Region and
+      Auto-Map (ARGUS)" appears, and only when the selection touches a box.
+- [ ] GUI Bounty tab: "Map the 2x cell" / "Map the nearest" open the same popup; with no
+      bounty loaded they say so instead.

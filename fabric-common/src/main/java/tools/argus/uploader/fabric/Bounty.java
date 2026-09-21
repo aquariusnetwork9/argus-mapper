@@ -36,6 +36,7 @@ public final class Bounty {
     });
 
     private static List<BountyRegion> shown = List.of();
+    private static volatile List<BountyRegion> latest = List.of();
     private static BountyRegion bountyCell;
     private static long updatedAt;
     private static String status = "Off";
@@ -95,9 +96,71 @@ public final class Bounty {
         return "Refreshing the bounty list.";
     }
 
+    /** The boxes to draw on the World Map: the last list fetched, while bounty is on. */
+    public static List<BountyRegion> boxes() {
+        return isEnabled() ? latest : List.of();
+    }
+
+    /** The bounty box overlapping this block rectangle the most, or null if none does. */
+    public static BountyRegion regionOverlapping(int x0, int z0, int x1, int z1) {
+        BountyRegion best = null;
+        long bestArea = 0;
+        for (BountyRegion region : boxes()) {
+            long width = Math.min(x1, region.blockX1()) - (long) Math.max(x0, region.blockX0());
+            long depth = Math.min(z1, region.blockZ1()) - (long) Math.max(z0, region.blockZ0());
+            if (width > 0 && depth > 0 && width * depth > bestArea) {
+                best = region;
+                bestArea = width * depth;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Queues the "fly there and map it?" popup for today's 2x cell ({@code "2x"}), the box nearest
+     * you ({@code "nearest"}) or, with no choice, the 2x cell if there is one, else the nearest.
+     *
+     * @return why nothing was queued, or null if the popup is on its way
+     */
+    public static String requestFlight(String which) {
+        List<BountyRegion> regions = boxes();
+        if (regions.isEmpty()) {
+            return "No bounty regions are loaded. Turn bounty on and wait for the first refresh.";
+        }
+        boolean wantBounty = which == null || which.equals("2x");
+        BountyRegion pick = null;
+        if (wantBounty) {
+            pick = regions.stream().filter(BountyRegion::bounty).findFirst().orElse(null);
+            if (pick == null && which != null) {
+                return "Today's 2x cell isn't in the list.";
+            }
+        }
+        if (pick == null) {
+            MinecraftClient mc = MinecraftClient.getInstance();
+            if (mc.player == null) {
+                return "Join a world first.";
+            }
+            double px = mc.player.getX();
+            double pz = mc.player.getZ();
+            double best = Double.MAX_VALUE;
+            for (BountyRegion region : regions) {
+                double dx = Math.max(Math.max(region.blockX0() - px, 0), px - region.blockX1());
+                double dz = Math.max(Math.max(region.blockZ0() - pz, 0), pz - region.blockZ1());
+                double distance = Math.hypot(dx, dz);
+                if (distance < best) {
+                    best = distance;
+                    pick = region;
+                }
+            }
+        }
+        AutoMapper.requestBountyFromCommand(pick);
+        return null;
+    }
+
     public static void clearMarkers() {
         BountyMarkers.removeAll();
         shown = List.of();
+        latest = List.of();
         bountyCell = null;
         updatedAt = 0;
     }
@@ -107,6 +170,7 @@ public final class Bounty {
         poller.reset();
         BountyMarkers.forget();
         shown = List.of();
+        latest = List.of();
         bountyCell = null;
         updatedAt = 0;
         status = isEnabled() ? "Waiting: not in a world" : "Off";
@@ -185,6 +249,8 @@ public final class Bounty {
             return;
         }
         List<BountyRegion> regions = response.markers();
+        latest = regions;
+        bountyCell = response.bounty();
         if (regions.equals(shown) && !BountyMarkers.isEmpty()) {
             updatedAt = now;
             poller.succeeded(now);

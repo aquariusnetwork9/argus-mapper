@@ -713,6 +713,7 @@ public final class ArgusGuiScreen extends Screen {
     // ---------------------------------------------------------------- Bounty
 
     private int bountyStatusY;
+    private String bountyMessage = "";
 
     private void buildBountyTab(int top) {
         ArgusConfig cfg = ArgusUploaderClientMod.config();
@@ -720,7 +721,7 @@ public final class ArgusGuiScreen extends Screen {
         int inner = panelW - PAD * 2;
         int y = top;
         bountyStatusY = y;
-        y += 40;
+        y += 52;
 
         y = toggleRow(y, "Mark bounty regions on the Xaero map", cfg.bountyEnabled, Bounty::setEnabled);
         y = sliderRow(y, "Regions to mark", 10, 100, 5, cfg.bountyLimit, v -> Integer.toString(v), v -> cfg.bountyLimit = v);
@@ -728,8 +729,19 @@ public final class ArgusGuiScreen extends Screen {
         int buttonW = (inner - gap) / 2;
         addDrawableChild(new PanelButton(panelX + PAD, y, buttonW, ROW_H, Text.literal("Refresh now"), () -> Bounty.refreshNow()));
         addDrawableChild(new PanelButton(panelX + PAD + buttonW + gap, y, buttonW, ROW_H, Text.literal("Clear markers"), Bounty::clearMarkers));
+        y += ROW_H + ROW_GAP;
+        addDrawableChild(new PanelButton(panelX + PAD, y, buttonW, ROW_H, Text.literal("Map the 2x cell"), () -> bountyFlight("2x"))
+                .colors(0xFF362A5E, 0xFFB79CFF));
+        addDrawableChild(new PanelButton(panelX + PAD + buttonW + gap, y, buttonW, ROW_H, Text.literal("Map the nearest"), () -> bountyFlight("nearest"))
+                .colors(0xFF362A5E, 0xFFB79CFF));
 
         addDrawableChild(saveButton(panelX + PAD, panelY + panelH - PAD - ROW_H, cfg));
+    }
+
+    private void bountyFlight(String which) {
+        var problem = AutoMapper.readinessProblem();
+        String noBounty = Bounty.requestFlight(which);
+        bountyMessage = noBounty != null ? noBounty : problem.map(p -> "Not ready: " + p).orElse("");
     }
 
     private void renderBounty(DrawContext context) {
@@ -741,6 +753,10 @@ public final class ArgusGuiScreen extends Screen {
                 "Temporary waypoints on Xaero's World Map.", width), panelX + PAD, y + 14, MUTED);
         context.drawTextWithShadow(this.textRenderer, this.textRenderer.trimToWidth(
                 "Fetches a public list about every 2 min; sends no token.", width), panelX + PAD, y + 26, MUTED);
+        if (!bountyMessage.isEmpty()) {
+            context.drawTextWithShadow(this.textRenderer, this.textRenderer.trimToWidth(bountyMessage, width),
+                    panelX + PAD, y + 38, 0xFFFFB86B);
+        }
     }
 
     // ---------------------------------------------------------------- shared helpers

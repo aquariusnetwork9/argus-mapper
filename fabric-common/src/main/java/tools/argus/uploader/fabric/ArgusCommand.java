@@ -148,6 +148,10 @@ final class ArgusCommand {
                         .then(literal("on").executes(ctx -> bountySet(ctx.getSource(), true)))
                         .then(literal("off").executes(ctx -> bountySet(ctx.getSource(), false)))
                         .then(literal("refresh").executes(ctx -> bountyRefresh(ctx.getSource())))
+                        .then(literal("go")
+                                .executes(ctx -> bountyGo(ctx.getSource(), null))
+                                .then(literal("2x").executes(ctx -> bountyGo(ctx.getSource(), "2x")))
+                                .then(literal("nearest").executes(ctx -> bountyGo(ctx.getSource(), "nearest"))))
                         .then(literal("clear").executes(ctx -> bountyClear(ctx.getSource()))))
                 .then(literal("gui").executes(ctx -> openGui(ctx.getSource()))));
     }
@@ -162,6 +166,16 @@ final class ArgusCommand {
         info(source, on
                 ? "Bounty markers on. About every 2 minutes, in the overworld on a known server, the mod fetches the public list and marks it on Xaero's World Map."
                 : "Bounty markers off and cleared. Nothing is fetched.");
+        return 1;
+    }
+
+    private static int bountyGo(FabricClientCommandSource source, String which) {
+        String problem = Bounty.requestFlight(which);
+        if (problem != null) {
+            error(source, problem);
+            return 0;
+        }
+        info(source, "Confirm in the popup to fly there and map it.");
         return 1;
     }
 

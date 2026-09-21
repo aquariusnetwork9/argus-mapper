@@ -13,6 +13,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.fabric.BountyOverlay;
 import tools.argus.uploader.fabric.RegionOverlayState;
 import xaero.map.MapProcessor;
 import xaero.map.gui.GuiMap;
@@ -127,6 +128,10 @@ public abstract class MixinGuiMapOverlay {
         if (!Double.isFinite(worldLeft) || !Double.isFinite(worldRight)
                 || !Double.isFinite(worldTop) || !Double.isFinite(worldBottom)) {
             return;
+        }
+
+        if ("overworld".equals(dimension)) {
+            BountyOverlay.draw(context, cameraX, cameraZ, pixelsPerBlock, width, height);
         }
 
         int regionMinX = Math.floorDiv((int) Math.floor(worldLeft), REGION_BLOCKS);

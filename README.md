@@ -216,9 +216,21 @@ Bounty Region (2x)**.
 - **The markers.** They're temporary (Xaero never saves them), shown on the World Map
   only (not the minimap or in the world), and replaced on each refresh. They go into
   the waypoint set you have open. Turning bounty off removes them.
+- **The boxes.** Each cell is also drawn on the World Map as a box: aqua for a wanted
+  cell, gold for today's 2x cell.
+- **Flying there.** `/argus bounty go` (or `go 2x` / `go nearest`), the GUI's **Map the
+  2x cell** / **Map the nearest** buttons, or right-clicking a selection on a bounty
+  box in the World Map and choosing **Fly to Bounty Region and Auto-Map**, asks
+  "Fly to this bounty region and map it?". On **Yes** it flies to the box's nearest
+  corner at Meteor's top speed (`autoMapMaxSpeed`, 5.99 blocks/tick by default),
+  then within about two seconds of reaching it slows to the mapping speed (about
+  25 blocks/s) and maps the whole box in lanes, like an auto-map. It needs what
+  auto-map needs: Elytra Fly on in Vanilla mode and you already gliding (take off
+  yourself). It stops the same ways, `/argus automap stop` cancels it, and uploads
+  of the box are held until it finishes. Bounty boxes are in the overworld.
 - **Commands.** `/argus bounty` shows the state, `on` / `off` switch it, `refresh`
-  asks again now (at most every 15 seconds), `clear` removes the markers until the
-  next refresh.
+  asks again now (at most every 15 seconds), `clear` removes the markers and boxes
+  until the next refresh, `go` starts the flight above.
 
 Needs Xaero's Minimap and World Map. Not in the 26.2 build yet.
 
@@ -318,7 +330,7 @@ vanilla Minecraft, and this toggle can't change that.
 | `/argus wholemap [on\|off]` | Whole-map switch; no argument shows status. `on` asks first. |
 | `/argus blackzone add\|list\|remove` | Manage blackzones (`remove` asks first). |
 | `/argus automap [start <minRX> <minRZ> <maxRX> <maxRZ>\|calibrate [speeds]\|stop\|status]` | Fly a box of the map for you, or a speed test flight (experimental). `start` and `calibrate` ask first. |
-| `/argus bounty [on\|off\|refresh\|clear\|status]` | Mark the map's wanted regions on Xaero's World Map (off by default; fetches a public list while on). |
+| `/argus bounty [on\|off\|refresh\|clear\|status\|go [2x\|nearest]]` | Mark the map's wanted regions on Xaero's World Map (off by default; fetches a public list while on); `go` flies to one and maps it, after asking. |
 | `/argus settoken <token>` / `/argus setlayer <layer>` | Set those from in-game. |
 | `/argus server` / `list` / `use <id>` / `add <id> <layer> <matches>` | Server auto-detect and the server list. |
 | `/argus discord sethook <url>` / `test` / `report` | Discord webhook setup and stats. |

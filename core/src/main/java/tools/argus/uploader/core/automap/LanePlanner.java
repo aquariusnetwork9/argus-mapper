@@ -52,6 +52,13 @@ public final class LanePlanner {
         return path;
     }
 
+    /** The box corner nearest a point, pulled 8 blocks inside so arriving there is arriving in the box. */
+    public static double[] nearestCorner(ChunkBox box, double x, double z) {
+        double cornerX = Math.abs(x - box.minBlockX()) <= Math.abs(x - box.maxBlockX()) ? box.minBlockX() + 8 : box.maxBlockX() - 8;
+        double cornerZ = Math.abs(z - box.minBlockZ()) <= Math.abs(z - box.maxBlockZ()) ? box.minBlockZ() + 8 : box.maxBlockZ() - 8;
+        return new double[]{cornerX, cornerZ};
+    }
+
     public static double length(List<Waypoint> path, double startX, double startZ) {
         double total = 0;
         double x = startX;

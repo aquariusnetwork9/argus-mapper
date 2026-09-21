@@ -28,6 +28,7 @@ import tools.argus.uploader.core.automap.LanePlanner;
 import tools.argus.uploader.core.automap.LaneWidthModel;
 import tools.argus.uploader.core.automap.MeteorElytra;
 import tools.argus.uploader.core.automap.Waypoint;
+import tools.argus.uploader.core.bounty.BountyRegion;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -52,6 +53,7 @@ public final class AutoMapper {
     private static final int HOLD_MARGIN_REGIONS = 1;
 
     private static volatile ChunkBox pendingBox;
+    private static volatile BountyRegion pendingBounty;
     private static volatile String pendingCalibration;
     private static boolean calibrating;
     private static List<String> calibrationEnvironment = List.of();
@@ -98,6 +100,11 @@ public final class AutoMapper {
         pendingBox = box;
     }
 
+    /** Chat-command and GUI entry point for a bounty flight: the popup opens on the next tick. */
+    public static void requestBountyFromCommand(BountyRegion region) {
+        pendingBounty = region;
+    }
+
     public static void stop(String reason) {
         if (plan != null) {
             end(MinecraftClient.getInstance(), reason);
@@ -112,7 +119,7 @@ public final class AutoMapper {
             return;
         }
         MeteorElytra elytra = MeteorElytra.find().orElseThrow();
-        AutoMapController.Settings settings = settingsFor(client, elytra);
+        AutoMapController.Settings settings = settingsFor(client, elytra, false);
         ClientPlayerEntity player = client.player;
         List<Waypoint> path = LanePlanner.plan(box, player.getX(), player.getZ(), settings.halfWidthChunks());
         double minutes = LanePlanner.length(path, player.getX(), player.getZ()) / (settings.startSpeed() * 20) / 60;
@@ -129,11 +136,60 @@ public final class AutoMapper {
                 confirmed -> {
                     client.setScreen(confirmed ? null : previous);
                     if (confirmed) {
-                        begin(client, elytra, box, settings, dimension);
+                        begin(client, elytra, box, settings, dimension, "Auto-map");
                     }
                 },
                 Text.literal("Auto-map this area?"), Text.literal(body),
                 Text.literal("Start"), Text.literal("Cancel")));
+    }
+
+    /** Asks before flying to a bounty region at top speed, then mapping it once there. */
+    public static void requestBounty(BountyRegion region, Screen previous) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        Optional<String> problem = checkCanStart(client);
+        if (problem.isPresent()) {
+            feedback(client, problem.get());
+            return;
+        }
+        String dimension = AutoUploads.dimensionOf(client.world);
+        if (!dimension.equals("overworld")) {
+            feedback(client, "Bounty regions are in the overworld; go there first.");
+            return;
+        }
+        MeteorElytra elytra = MeteorElytra.find().orElseThrow();
+        AutoMapController.Settings settings = settingsFor(client, elytra, true);
+        ChunkBox box = new ChunkBox(Math.floorDiv(region.blockX0(), 16), Math.floorDiv(region.blockZ0(), 16),
+                Math.floorDiv(region.blockX1(), 16) - 1, Math.floorDiv(region.blockZ1(), 16) - 1);
+        ClientPlayerEntity player = client.player;
+        double[] corner = LanePlanner.nearestCorner(box, player.getX(), player.getZ());
+        double distance = Math.hypot(corner[0] - player.getX(), corner[1] - player.getZ());
+        double transitSeconds = distance / (settings.transitSpeed() * 20);
+        List<Waypoint> path = LanePlanner.plan(box, corner[0], corner[1], settings.halfWidthChunks());
+        double mapMinutes = LanePlanner.length(path, corner[0], corner[1]) / (settings.startSpeed() * 20) / 60;
+
+        String body = (region.bounty() ? "Today's 2x bounty region" : "Bounty region") + " at " + region.centerX() + ", "
+                + region.centerZ() + ", " + Math.round(distance) + " blocks to its nearest corner.\n\n"
+                + "Flies there at Meteor's top speed (" + String.format("%.2f", settings.transitSpeed()) + " blocks/tick, about "
+                + formatDuration(transitSeconds) + "), and on reaching the corner slows within a couple of seconds to "
+                + String.format("%.2f", settings.startSpeed()) + " blocks/tick (about "
+                + Math.round(settings.startSpeed() * 20) + " blocks/s) and maps the region in lanes, roughly "
+                + Math.max(1, Math.round(mapMinutes)) + " min, at about Y " + settings.cruiseY() + ".\n\n"
+                + "It steers your character and changes Meteor's Elytra Fly speed while it runs, and stops if you teleport, "
+                + "change dimension, take damage, stop gliding or turn Elytra Fly off. /argus automap stop cancels it. "
+                + "Uploads of the region are held until it finishes.";
+        client.setScreen(new ConfirmScreen(
+                confirmed -> {
+                    client.setScreen(confirmed ? null : previous);
+                    if (confirmed) {
+                        begin(client, elytra, box, settings, dimension, "Bounty flight");
+                    }
+                },
+                Text.literal("Fly to this bounty region and map it?"), Text.literal(body),
+                Text.literal("Yes"), Text.literal("No")));
+    }
+
+    private static String formatDuration(double seconds) {
+        return seconds < 90 ? Math.max(1, Math.round(seconds)) + " s" : Math.round(seconds / 60.0) + " min";
     }
 
     /** Why a flight couldn't start right now, if it couldn't - for the GUI's live status. */
@@ -177,7 +233,7 @@ public final class AutoMapper {
         return Optional.empty();
     }
 
-    private static AutoMapController.Settings settingsFor(MinecraftClient client, MeteorElytra elytra) {
+    private static AutoMapController.Settings settingsFor(MinecraftClient client, MeteorElytra elytra, boolean transit) {
         ArgusConfig config = ArgusUploaderClientMod.config();
         double min = Math.max(0.3, config.autoMapMinSpeed);
         double max = Math.max(min, config.autoMapMaxSpeed);
@@ -192,14 +248,15 @@ public final class AutoMapper {
         double vertical = elytra.verticalSpeed();
         double climb = Double.isNaN(vertical) ? 0.5 : Math.max(0.1, vertical * 0.5);
         int lag = FabricLoader.getInstance().isModLoaded("xaeroworldmap") ? 4 : 2;
-        return new AutoMapController.Settings(half, min, operating, operating, config.autoMapCruiseY, 8, climb, lag, 2);
+        return new AutoMapController.Settings(half, min, operating, operating, config.autoMapCruiseY, 8, climb, lag, 2,
+                transit ? max : 0);
     }
 
     private static void begin(MinecraftClient client, MeteorElytra elytra, ChunkBox box,
-                              AutoMapController.Settings settings, String dimension) {
+                              AutoMapController.Settings settings, String dimension, String label) {
         Optional<String> problem = checkCanStart(client);
         if (problem.isPresent()) {
-            feedback(client, "Auto-map didn't start: " + problem.get());
+            feedback(client, label + " didn't start: " + problem.get());
             return;
         }
         ClientPlayerEntity player = client.player;
@@ -216,7 +273,7 @@ public final class AutoMapper {
         plan = new AutoMapController(box, settings, dimension, player.getX(), player.getZ(),
                 AutoMapper::covered, AutoMapper::topY);
         holdUploads(UploadHold.forBox(box, dimension, HOLD_MARGIN_REGIONS));
-        feedback(client, "Auto-map started" + (xaero == null
+        feedback(client, label + " started" + (xaero == null
                 ? " (Xaero's World Map couldn't be read, so it goes by loaded chunks)." : ".")
                 + " Nothing in that area is uploaded until it finishes. /argus automap stop cancels it.");
     }
@@ -226,6 +283,11 @@ public final class AutoMapper {
         if (box != null) {
             pendingBox = null;
             requestStart(box, client.currentScreen);
+        }
+        BountyRegion bounty = pendingBounty;
+        if (bounty != null) {
+            pendingBounty = null;
+            requestBounty(bounty, client.currentScreen);
         }
         String speeds = pendingCalibration;
         if (speeds != null) {
