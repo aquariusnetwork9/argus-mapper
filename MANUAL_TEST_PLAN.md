@@ -4,7 +4,9 @@ The by-hand checklist for everything the automated tests can't reach: the parts 
 mod that only run inside a real game client.
 
 **Status for the 1.0.0 release: scenarios 1-20 have been run by hand in a real 1.21.11
-client and pass (2026-09-21). Scenario 21 (waystone teleports) is new and not yet run.**
+client and pass (2026-09-21). Scenario 21 (waystone teleports)'s core flow - queue, ready,
+the mod's own `/tpa`, delivery - has been confirmed live (2026-09-21); its individual
+checklist items below haven't each been walked through separately yet.**
 
 ## Prerequisites
 
