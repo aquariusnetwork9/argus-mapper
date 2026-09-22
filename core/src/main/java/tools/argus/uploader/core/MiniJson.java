@@ -1,4 +1,4 @@
-package tools.argus.uploader.core.bounty;
+package tools.argus.uploader.core;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -6,11 +6,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Just enough JSON for the bounty reply, so the core module needs no library: objects become
+ * Just enough JSON for the backend's small replies, so the core module needs no library: objects become
  * {@link Map}s, arrays {@link List}s, numbers {@link Double}s, plus {@link String}, {@link Boolean}
  * and {@code null}. Throws {@link IllegalArgumentException} on anything malformed.
  */
-final class MiniJson {
+public final class MiniJson {
 
     private static final int MAX_DEPTH = 16;
 
@@ -21,7 +21,7 @@ final class MiniJson {
         this.text = text;
     }
 
-    static Object parse(String text) {
+    public static Object parse(String text) {
         MiniJson parser = new MiniJson(text);
         parser.skipSpace();
         Object value = parser.value(0);

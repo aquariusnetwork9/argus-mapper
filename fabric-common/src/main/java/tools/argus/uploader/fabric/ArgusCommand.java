@@ -153,7 +153,38 @@ final class ArgusCommand {
                                 .then(literal("2x").executes(ctx -> bountyGo(ctx.getSource(), "2x")))
                                 .then(literal("nearest").executes(ctx -> bountyGo(ctx.getSource(), "nearest"))))
                         .then(literal("clear").executes(ctx -> bountyClear(ctx.getSource()))))
+                .then(literal("waystone")
+                        .executes(ctx -> waystoneStatus(ctx.getSource()))
+                        .then(literal("status").executes(ctx -> waystoneStatus(ctx.getSource())))
+                        .then(literal("refresh").executes(ctx -> waystoneRefresh(ctx.getSource())))
+                        .then(literal("cancel").executes(ctx -> waystoneCancel(ctx.getSource()))))
                 .then(literal("gui").executes(ctx -> openGui(ctx.getSource()))));
+    }
+
+    private static int waystoneStatus(FabricClientCommandSource source) {
+        info(source, Waystones.accountLine());
+        info(source, Waystones.botLine());
+        info(source, Waystones.listLine());
+        if (!Waystones.flowLine().isEmpty()) {
+            info(source, Waystones.flowLine());
+        }
+        info(source, "Pick a waystone on the GUI's Waystones tab, or right-click one on Xaero's World Map.");
+        return 1;
+    }
+
+    private static int waystoneRefresh(FabricClientCommandSource source) {
+        Waystones.refreshNow();
+        info(source, "Refreshing the waystone list while the Waystones tab is open (or the map markers are on).");
+        return 1;
+    }
+
+    private static int waystoneCancel(FabricClientCommandSource source) {
+        if (!Waystones.isBusy()) {
+            error(source, "No waystone teleport is in progress.");
+            return 0;
+        }
+        Waystones.cancelFlow();
+        return 1;
     }
 
     private static int bountyStatus(FabricClientCommandSource source) {

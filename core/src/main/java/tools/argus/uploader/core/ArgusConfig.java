@@ -69,6 +69,14 @@ public final class ArgusConfig {
     public String bountyUrl = "https://map.argus.tools/api/needed-regions";
     public int bountyLimit = 50;
 
+    // Waystone teleports: markers on the map are off unless asked for; the bot name is only a
+    // fallback for when the backend doesn't say which player to /tpa.
+    public String waystoneBaseUrl = "https://map.argus.tools";
+    public boolean waystoneMarkers = false;
+    public String waystoneBotName = "";
+    // How long to wait after the bot reports it is ready before sending /tpa, like a person reading chat.
+    public int waystoneTpaDelaySeconds = 5;
+
     public boolean isUsable() {
         return !token.isBlank() && !layer.isBlank();
     }
@@ -108,6 +116,10 @@ public final class ArgusConfig {
         cfg.bountyEnabled = Boolean.parseBoolean(p.getProperty("bountyEnabled", String.valueOf(cfg.bountyEnabled)));
         cfg.bountyUrl = p.getProperty("bountyUrl", cfg.bountyUrl);
         cfg.bountyLimit = (int) Math.max(1, Math.min(100, parseLong(p.getProperty("bountyLimit"), cfg.bountyLimit)));
+        cfg.waystoneBaseUrl = p.getProperty("waystoneBaseUrl", cfg.waystoneBaseUrl);
+        cfg.waystoneMarkers = Boolean.parseBoolean(p.getProperty("waystoneMarkers", String.valueOf(cfg.waystoneMarkers)));
+        cfg.waystoneBotName = p.getProperty("waystoneBotName", cfg.waystoneBotName);
+        cfg.waystoneTpaDelaySeconds = (int) Math.max(0, Math.min(30, parseLong(p.getProperty("waystoneTpaDelaySeconds"), cfg.waystoneTpaDelaySeconds)));
         return cfg;
     }
 
@@ -138,6 +150,10 @@ public final class ArgusConfig {
         p.setProperty("bountyEnabled", String.valueOf(bountyEnabled));
         p.setProperty("bountyUrl", bountyUrl);
         p.setProperty("bountyLimit", String.valueOf(bountyLimit));
+        p.setProperty("waystoneBaseUrl", waystoneBaseUrl);
+        p.setProperty("waystoneMarkers", String.valueOf(waystoneMarkers));
+        p.setProperty("waystoneBotName", waystoneBotName);
+        p.setProperty("waystoneTpaDelaySeconds", String.valueOf(waystoneTpaDelaySeconds));
         if (file.getParent() != null) {
             Files.createDirectories(file.getParent());
         }

@@ -20,6 +20,8 @@ import tools.argus.uploader.fabric.AutoMapper;
 import tools.argus.uploader.fabric.AutoUploads;
 import tools.argus.uploader.fabric.BlackzoneRemoval;
 import tools.argus.uploader.fabric.Bounty;
+import tools.argus.uploader.fabric.Waystones;
+import tools.argus.uploader.core.waystone.Waystone;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -37,7 +39,7 @@ import java.util.List;
  */
 public final class ArgusGuiScreen extends Screen {
 
-    private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Blackzones", "Stats", "Uploads", "Auto-map", "Bounty", "Road Dept.", "API"};
+    private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Blackzones", "Stats", "Uploads", "Auto-map", "Bounty", "Waystones", "Road Dept.", "API"};
     private static final int MIN_PANEL_W = 300;
     private static final int HEADER_H = 46;
     private static final int PAD = 12;
@@ -72,7 +74,7 @@ public final class ArgusGuiScreen extends Screen {
     private static final int ACCENT = 0xFF8A6BFF;
     private static final int FIELD_BG = 0xFF1A1C25;
 
-    private enum Tab { GENERAL, TOKEN, SERVERS, BLACKZONES, STATS, UPLOADS, AUTO_MAP, BOUNTY, ROAD_DEPT, API }
+    private enum Tab { GENERAL, TOKEN, SERVERS, BLACKZONES, STATS, UPLOADS, AUTO_MAP, BOUNTY, WAYSTONES, ROAD_DEPT, API }
 
     private Tab currentTab = Tab.GENERAL;
     private int panelX;
@@ -143,6 +145,7 @@ public final class ArgusGuiScreen extends Screen {
             case ROAD_DEPT -> buildRoadDeptTab(contentTop);
             case AUTO_MAP -> buildAutoMapTab(contentTop);
             case BOUNTY -> buildBountyTab(contentTop);
+            case WAYSTONES -> buildWaystonesTab(contentTop);
             case API -> buildApiTab(contentTop);
         }
     }
@@ -759,6 +762,94 @@ public final class ArgusGuiScreen extends Screen {
         }
     }
 
+    // ---------------------------------------------------------------- Waystones
+
+    private int waystoneStatusY;
+    private int waystonePage;
+    private int waystoneBuiltVersion = -1;
+    private int waystoneBotLabelY;
+    private TextFieldWidget waystoneBotField;
+
+    private void buildWaystonesTab(int top) {
+        Waystones.touchTab();
+        MinecraftClient mc = MinecraftClient.getInstance();
+        int gap = 6;
+        int y = top;
+        waystoneStatusY = y;
+        y += 40;
+
+        y = toggleRow(y, "Show waystones on the Xaero map", Waystones.markersEnabled(), Waystones::setMarkersEnabled);
+
+        waystoneBotLabelY = y;
+        y += 10;
+        int resetW = 50;
+        waystoneBotField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, panelW - PAD * 2 - gap - resetW, ROW_H, Text.empty());
+        waystoneBotField.setMaxLength(16);
+        waystoneBotField.setTextPredicate(s -> s.matches("[A-Za-z0-9_]*"));
+        waystoneBotField.setText(Waystones.manualBotName());
+        waystoneBotField.setChangedListener(Waystones::setManualBotName);
+        addDrawableChild(waystoneBotField);
+        addDrawableChild(new PanelButton(panelX + panelW - PAD - resetW, y, resetW, ROW_H, Text.literal("Reset"), () -> {
+            waystoneBotField.setText("");
+            Waystones.resetManualBotName();
+        }));
+        y += ROW_H + ROW_GAP;
+
+        List<Waystone> all = Waystones.sortedFor(mc);
+        int rowStep = ROW_H + ROW_GAP + 2;
+        int pagerY = panelY + panelH - PAD - ROW_H;
+        int perPage = Math.max(1, (pagerY - 4 - y) / rowStep);
+        int pages = Math.max(1, (all.size() + perPage - 1) / perPage);
+        waystonePage = Math.max(0, Math.min(waystonePage, pages - 1));
+        if (all.isEmpty()) {
+            label("No waystones yet - they load when this tab opens.", panelX + PAD, y + 4, MUTED);
+        }
+        for (Waystone waystone : all.subList(waystonePage * perPage, Math.min(all.size(), (waystonePage + 1) * perPage))) {
+            double distance = Waystones.distanceTo(mc, waystone);
+            label(this.textRenderer.trimToWidth(waystone.displayName(), panelW - PAD * 2 - 76), panelX + PAD, y, TITLE_COLOR);
+            label(waystone.dimensionLabel() + "  " + waystone.x() + ", " + waystone.z()
+                    + (distance >= 0 ? "  -  " + Math.round(distance) + " blocks" : ""), panelX + PAD, y + 10, MUTED);
+            addDrawableChild(new PanelButton(panelX + panelW - PAD - 68, y, 68, ROW_H, Text.literal("Teleport"),
+                    () -> Waystones.requestTeleport(waystone, this)).colors(0xFF362A5E, 0xFFB79CFF));
+            y += rowStep;
+        }
+
+        addDrawableChild(new PanelButton(panelX + PAD, pagerY, 24, ROW_H, Text.literal("<"), () -> {
+            waystonePage = Math.max(0, waystonePage - 1);
+            switchTab(Tab.WAYSTONES);
+        }));
+        label((waystonePage + 1) + " / " + pages, panelX + PAD + 32, pagerY + (ROW_H - 8) / 2, MUTED);
+        addDrawableChild(new PanelButton(panelX + PAD + 70, pagerY, 24, ROW_H, Text.literal(">"), () -> {
+            waystonePage = Math.min(pages - 1, waystonePage + 1);
+            switchTab(Tab.WAYSTONES);
+        }));
+        addDrawableChild(new PanelButton(panelX + panelW - PAD - 90, pagerY, 90, ROW_H, Text.literal("Refresh"), Waystones::refreshNow));
+        waystoneBuiltVersion = Waystones.version();
+    }
+
+    private void renderWaystones(DrawContext context) {
+        Waystones.touchTab();
+        if (Waystones.version() != waystoneBuiltVersion) {
+            switchTab(Tab.WAYSTONES);
+        }
+        int y = waystoneStatusY;
+        int width = panelW - PAD * 2;
+        if (waystoneBotField != null) {
+            waystoneBotField.setSuggestion(waystoneBotField.getText().isEmpty() ? Waystones.botSuggestion() : "");
+        }
+        context.drawTextWithShadow(this.textRenderer, this.textRenderer.trimToWidth(Waystones.botNameLine(), width),
+                panelX + PAD, waystoneBotLabelY, MUTED);
+        context.drawTextWithShadow(this.textRenderer, this.textRenderer.trimToWidth(Waystones.accountLine(), width),
+                panelX + PAD, y, TITLE_COLOR);
+        context.drawTextWithShadow(this.textRenderer, this.textRenderer.trimToWidth(Waystones.botLine(), width),
+                panelX + PAD, y + 12, MUTED);
+        String third = !Waystones.flowLine().isEmpty() ? Waystones.flowLine()
+                : !Waystones.markersLine().isEmpty() && Waystones.markersEnabled() ? "Map: " + Waystones.markersLine()
+                : Waystones.listLine();
+        context.drawTextWithShadow(this.textRenderer, this.textRenderer.trimToWidth(third, width),
+                panelX + PAD, y + 24, Waystones.flowLine().isEmpty() ? MUTED : ACCENT);
+    }
+
     // ---------------------------------------------------------------- shared helpers
 
     private int toggleRow(int y, String text, boolean initial, java.util.function.Consumer<Boolean> onChange) {
@@ -819,6 +910,9 @@ public final class ArgusGuiScreen extends Screen {
         }
         if (currentTab == Tab.BOUNTY) {
             renderBounty(context);
+        }
+        if (currentTab == Tab.WAYSTONES) {
+            renderWaystones(context);
         }
 
         super.render(context, mouseX, mouseY, delta);

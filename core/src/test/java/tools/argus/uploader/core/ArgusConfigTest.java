@@ -24,6 +24,9 @@ class ArgusConfigTest {
         assertFalse(cfg.isUsable());
         assertFalse(cfg.reuploadChangedRegions, "re-uploading must be opt-in");
         assertFalse(cfg.bountyEnabled, "the bounty fetch must be opt-in");
+        assertFalse(cfg.waystoneMarkers, "the waystone map markers must be opt-in");
+        assertEquals("", cfg.waystoneBotName, "there is no guessed bot name");
+        assertEquals(5, cfg.waystoneTpaDelaySeconds);
     }
 
     @Test
@@ -48,6 +51,9 @@ class ArgusConfigTest {
         cfg.bountyEnabled = true;
         cfg.bountyUrl = "https://example.test/needed";
         cfg.bountyLimit = 30;
+        cfg.waystoneMarkers = true;
+        cfg.waystoneBotName = "mun_bot";
+        cfg.waystoneTpaDelaySeconds = 9;
         cfg.save(file);
 
         ArgusConfig reloaded = ArgusConfig.load(file);
@@ -69,6 +75,9 @@ class ArgusConfigTest {
         assertTrue(reloaded.bountyEnabled);
         assertEquals("https://example.test/needed", reloaded.bountyUrl);
         assertEquals(30, reloaded.bountyLimit);
+        assertTrue(reloaded.waystoneMarkers);
+        assertEquals("mun_bot", reloaded.waystoneBotName);
+        assertEquals(9, reloaded.waystoneTpaDelaySeconds);
         assertTrue(reloaded.isUsable());
     }
 
