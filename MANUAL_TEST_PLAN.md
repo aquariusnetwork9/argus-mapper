@@ -544,5 +544,6 @@ Waystone tokens in your balance (see the Waystones tab), Xaero's Minimap and Wor
 - [ ] Errors read clearly: no balance ("You don't have a Waystone token"), a teleport already
       in progress, bot offline, no username set, wrong token.
 - [ ] `/argus waystone` shows the state; `/argus waystone cancel` stops watching mid-teleport.
-- [ ] Only `/tpa <name>` is ever sent to chat, and only once per request (a single re-send if it
-      is still ready after ~25 s).
+- [ ] Only `/tpa <name>` is ever sent to chat, and only once per request (no re-sends), after
+      the `waystoneTpaDelaySeconds` pause (chat says "sending /tpa ... in a moment", then "Sent
+      /tpa ...").

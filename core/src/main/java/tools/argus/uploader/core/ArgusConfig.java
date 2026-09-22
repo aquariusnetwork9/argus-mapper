@@ -74,6 +74,8 @@ public final class ArgusConfig {
     public String waystoneBaseUrl = "https://map.argus.tools";
     public boolean waystoneMarkers = false;
     public String waystoneBotName = "";
+    // How long to wait after the bot reports it is ready before sending /tpa, like a person reading chat.
+    public int waystoneTpaDelaySeconds = 5;
 
     public boolean isUsable() {
         return !token.isBlank() && !layer.isBlank();
@@ -117,6 +119,7 @@ public final class ArgusConfig {
         cfg.waystoneBaseUrl = p.getProperty("waystoneBaseUrl", cfg.waystoneBaseUrl);
         cfg.waystoneMarkers = Boolean.parseBoolean(p.getProperty("waystoneMarkers", String.valueOf(cfg.waystoneMarkers)));
         cfg.waystoneBotName = p.getProperty("waystoneBotName", cfg.waystoneBotName);
+        cfg.waystoneTpaDelaySeconds = (int) Math.max(0, Math.min(30, parseLong(p.getProperty("waystoneTpaDelaySeconds"), cfg.waystoneTpaDelaySeconds)));
         return cfg;
     }
 
@@ -150,6 +153,7 @@ public final class ArgusConfig {
         p.setProperty("waystoneBaseUrl", waystoneBaseUrl);
         p.setProperty("waystoneMarkers", String.valueOf(waystoneMarkers));
         p.setProperty("waystoneBotName", waystoneBotName);
+        p.setProperty("waystoneTpaDelaySeconds", String.valueOf(waystoneTpaDelaySeconds));
         if (file.getParent() != null) {
             Files.createDirectories(file.getParent());
         }

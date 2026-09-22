@@ -133,8 +133,9 @@ cooldown. Each teleport costs one **Waystone token**, which you earn by uploadin
 
 Click **Teleport** next to a waystone and confirm. ARGUS's bot then travels to that
 waystone; the tab (and chat) keep you posted - where you are in the line, when the bot is
-on its way. The moment the bot is ready at the waystone, **the mod sends the `/tpa` request
-to it for you**, and you're teleported once it accepts. You never have to type anything.
+on its way. When the bot is ready at the waystone, **the mod sends the `/tpa` request to it
+for you** (after a short pause, like a person reading chat), and you're teleported once it
+accepts. You never have to type anything.
 
 The tab also has a **bot name** box. Leave it empty and the mod uses whichever bot ARGUS says
 is delivering (the name shows greyed out in the box, and a line above it says what will be
@@ -247,7 +248,8 @@ for the full list). The ones people change:
 - `autoMapCruiseY`, `autoMapMaxSpeed`, `autoMapSpeed` - height and speeds for flights.
 - `bountyEnabled`, `bountyLimit` - the bounty switch and how many cells to show (50).
 - `waystoneMarkers` - show waystones on Xaero's World Map (off); `waystoneBotName` - the bot
-  name you typed on the Waystones tab, empty to use the one ARGUS gives.
+  name you typed on the Waystones tab, empty to use the one ARGUS gives;
+  `waystoneTpaDelaySeconds` - the pause between the bot being ready and the `/tpa` (5).
 - `enableAddonApi`, `discordWebhookUrl`, `autoReportToDiscord`.
 
 Live and whole-map upload are deliberately not settings.

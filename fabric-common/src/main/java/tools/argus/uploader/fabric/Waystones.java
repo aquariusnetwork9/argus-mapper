@@ -41,8 +41,7 @@ public final class Waystones {
     private static final long FLOW_MILLIS = 2_500L;
     private static final long TAB_ALIVE_MILLIS = 2_000L;
     private static final long FLOW_GIVE_UP_MILLIS = 15 * 60_000L;
-    private static final long RESEND_TPA_MILLIS = 25_000L;
-    private static final int MAX_TPA_SENDS = 2;
+    private static final long READY_POLL_MILLIS = 1_000L;
     private static final int MAX_FLOW_FAILURES = 5;
 
     private static final ExecutorService fetcher = Executors.newSingleThreadExecutor(r -> {
@@ -87,8 +86,8 @@ public final class Waystones {
     private static long nextFlow;
     private static boolean flowBusy;
     private static int flowFailures;
-    private static int tpaSends;
-    private static long lastTpaAt;
+    private static boolean tpaSent;
+    private static long readySeenAt;
     private static boolean warnedNoBot;
 
     private Waystones() {
@@ -367,8 +366,8 @@ public final class Waystones {
         flowStartedAt = System.currentTimeMillis();
         nextFlow = flowStartedAt + FLOW_MILLIS;
         flowFailures = 0;
-        tpaSends = 0;
-        lastTpaAt = 0;
+        tpaSent = false;
+        readySeenAt = 0;
         warnedNoBot = false;
         TokenInfo info = tokenInfo;
         if (info != null) {
@@ -404,7 +403,7 @@ public final class Waystones {
         }
         MinecraftClient mc = MinecraftClient.getInstance();
         long now = System.currentTimeMillis();
-        nextFlow = now + FLOW_MILLIS;
+        nextFlow = now + (lastFlowStatus.equals("ready") && !tpaSent ? READY_POLL_MILLIS : FLOW_MILLIS);
         if (!reply.ok()) {
             if (reply.statusCode() == 404) {
                 clearFlow("ARGUS no longer knows about this teleport. Check map.argus.tools.");
@@ -468,15 +467,27 @@ public final class Waystones {
             warnedNoBot = true;
             feedback(mc, "Using the bot name you set (" + bot + "), but ARGUS says this teleport is with " + assigned.get() + ".");
         }
-        boolean firstSend = tpaSends == 0;
-        boolean resend = tpaSends < MAX_TPA_SENDS && now - lastTpaAt >= RESEND_TPA_MILLIS;
-        if ((firstSend || resend) && mc.player != null && mc.player.networkHandler != null) {
-            mc.player.networkHandler.sendChatCommand("tpa " + bot);
-            tpaSends++;
-            lastTpaAt = now;
-            feedback(mc, (firstSend ? "The bot is ready. Sent /tpa " : "Still waiting; sent /tpa again to ") + bot + ".");
+        if (tpaSent) {
+            flowText = "Sent /tpa " + bot + " - waiting for it to accept.";
+            return;
         }
-        flowText = "Sent /tpa " + bot + " - waiting for it to accept.";
+        if (readySeenAt == 0) {
+            readySeenAt = now;
+        }
+        long remaining = config().waystoneTpaDelaySeconds * 1000L - (now - readySeenAt);
+        if (remaining > 0) {
+            flowText = "The bot is ready; sending /tpa " + bot + " in " + (remaining + 999) / 1000 + " s.";
+            if (changed) {
+                feedback(mc, "The bot is ready at " + label + ". Sending /tpa " + bot + " in a moment.");
+            }
+            return;
+        }
+        if (mc.player != null && mc.player.networkHandler != null) {
+            mc.player.networkHandler.sendChatCommand("tpa " + bot);
+            tpaSent = true;
+            feedback(mc, "Sent /tpa " + bot + ".");
+            flowText = "Sent /tpa " + bot + " - waiting for it to accept.";
+        }
     }
 
     private static void clearFlow(String text) {
