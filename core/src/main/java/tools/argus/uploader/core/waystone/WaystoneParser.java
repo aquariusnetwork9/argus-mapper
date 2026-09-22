@@ -7,7 +7,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Reads the waystone API's JSON. Entries it can't make sense of are skipped rather than failing the lot. */
+/**
+ * Reads the waystone API's JSON. Entries it can't make sense of are skipped rather than failing the
+ * lot. The delivery bot's name is confirmed always present - {@code "bots"} in a system-status reply,
+ * {@code "bot"} in a teleport-status one - but older field names ({@code botIgn}/{@code botName}) are
+ * still read too, in case a future reply reverts to them.
+ */
 public final class WaystoneParser {
 
     private static final Set<String> DIMENSIONS = Set.of("overworld", "the_nether", "the_end");
@@ -81,9 +86,10 @@ public final class WaystoneParser {
     }
 
     /**
-     * The delivery bot name(s) a reply mentions: {@code botIgn}, {@code bot} or {@code botName} for one,
-     * {@code bots} or {@code botIgns} for several (names, or objects with an {@code ign}/{@code name}).
-     * Only values that look like a Minecraft username are kept, in order and without repeats.
+     * The delivery bot name(s) a reply mentions. The confirmed fields are {@code bot} (a teleport's
+     * assigned bot) and {@code bots} (the roster); {@code botIgn} and {@code botName} are read too for
+     * safety. A roster entry can be a name or an object with an {@code ign}/{@code name}. Only values
+     * that look like a Minecraft username are kept, in order and without repeats.
      */
     private static List<String> botNames(Map<?, ?> m) {
         List<String> names = new ArrayList<>();

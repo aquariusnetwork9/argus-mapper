@@ -26,7 +26,9 @@ import java.util.concurrent.Executors;
 /**
  * Waystone teleports: lists ARGUS's approved waystones, optionally shows them on Xaero's World Map,
  * and after a confirmation spends a Waystone token to have ARGUS's delivery bot travel to the chosen
- * one. When the bot reports it is ready, the mod types {@code /tpa <bot>} for the player.
+ * one. ARGUS names the bot assigned to each teleport itself (the {@code bot} field on
+ * {@code tp/status}), so this normally needs no player input at all; when the bot reports it is
+ * ready, the mod types {@code /tpa <bot>} for the player without being asked.
  *
  * <p>The public waystone list and the bot's status are only fetched while the GUI's Waystones tab is
  * open (or the map markers are switched on); the player's balance and the teleport itself use the
@@ -171,7 +173,13 @@ public final class Waystones {
         return flowText;
     }
 
-    /** What the mod would type for the bot right now, and where that name came from. */
+    /**
+     * What the mod would type for the bot right now, and where that name came from. ARGUS assigns a
+     * specific bot to every teleport ({@code assignedByTeleport}) and that is normally all this needs;
+     * the roster ({@link SystemStatus#bots()}) only fills the gap before a teleport exists to be
+     * assigned one, or if the roster ever grows past one bot with none assigned yet. The player's own
+     * typed name, if any, wins over both - a deliberate override, e.g. to route around a bad reply.
+     */
     private record BotChoice(String name, String source) {
     }
 
@@ -191,7 +199,7 @@ public final class Waystones {
         return null;
     }
 
-    /** The name(s) ARGUS lists for the bot, for the text box's greyed-out hint; empty if it hasn't said. */
+    /** The name(s) ARGUS's roster lists, for the text box's greyed-out hint when the player hasn't typed one. */
     public static String botSuggestion() {
         SystemStatus status = botStatus;
         return status == null ? "" : String.join(", ", status.bots());

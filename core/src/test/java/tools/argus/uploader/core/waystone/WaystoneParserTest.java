@@ -112,6 +112,17 @@ class WaystoneParserTest {
     }
 
     @Test
+    void readsTheConfirmedApiExamplesVerbatim() {
+        SystemStatus status = WaystoneParser.systemStatus(
+                "{ \"online\": true, \"busy\": false, \"queued\": 0, \"secondsUntilReady\": 0, \"bots\": [\"mun_map\"] }");
+        assertEquals(List.of("mun_map"), status.bots());
+
+        TeleportStatus queued = WaystoneParser.teleportStatus(
+                "{ \"status\": \"queued\", \"waystone\": \"Group\", \"position\": 0, \"bot\": \"mun_map\", \"error\": null }");
+        assertEquals("mun_map", queued.bot(), "the assigned bot is present from \"queued\" onward, not only at \"ready\"");
+    }
+
+    @Test
     void readsErrorCodesAndBalances() {
         assertEquals("insufficient_tokens", WaystoneParser.errorCode("{\"error\":\"insufficient_tokens\",\"balance\":0}"));
         assertEquals(0, WaystoneParser.balanceOf("{\"error\":\"insufficient_tokens\",\"balance\":0}"));

@@ -133,14 +133,14 @@ cooldown. Each teleport costs one **Waystone token**, which you earn by uploadin
 
 Click **Teleport** next to a waystone and confirm. ARGUS's bot then travels to that
 waystone; the tab (and chat) keep you posted - where you are in the line, when the bot is
-on its way. When the bot is ready at the waystone, **the mod sends the `/tpa` request to it
-for you** (after a short pause, like a person reading chat), and you're teleported once it
-accepts. You never have to type anything.
+on its way. ARGUS names the exact bot delivering your teleport, so when it's ready at the
+waystone, **the mod sends the `/tpa` request to it for you**, and it auto-accepts. You never
+have to type anything.
 
-The tab also has a **bot name** box. Leave it empty and the mod uses whichever bot ARGUS says
-is delivering (the name shows greyed out in the box, and a line above it says what will be
-used). Type a name and that is used instead. If ARGUS hasn't said and you haven't typed one,
-the mod tells you when the bot is ready and leaves the `/tpa` to you.
+The tab also has a **bot name** box, normally greyed out with the name ARGUS already gave -
+you don't need to touch it. It's there for the rare case ARGUS hasn't named one yet (say, a
+brand-new bot on the roster): type a name and that's used instead, ahead of ARGUS's own.
+With neither, the mod tells you when the bot is ready and leaves the `/tpa` to you.
 
 You can also **see the waystones on Xaero's World Map**. Turn on **Show waystones on the
 Xaero map** and each waystone in the dimension you're in gets a purple marker named **ARGUS
