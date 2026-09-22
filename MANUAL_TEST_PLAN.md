@@ -535,9 +535,12 @@ Waystone tokens in your balance (see the Waystones tab), Xaero's Minimap and Wor
 - [ ] When the bot is ready the mod sends `/tpa <botname>` by itself (visible in chat), the bot
       accepts, and you arrive at the waystone; chat says "Delivered".
 - [ ] Bot name box: leave it empty (the normal case - ARGUS names the bot itself). The name shows
-      greyed out in the box and the line above says "Will /tpa: <name> (from ARGUS)". Typing a
-      name switches the line to "(set by you)" and that name is used instead; clearing the box
-      goes back to ARGUS's.
+      greyed out in the box and the line above says "Will /tpa: <name> (from ARGUS)".
+- [ ] Type a different name in the box: the line still says "(from ARGUS)" and ARGUS's name is
+      still what gets sent - ARGUS's own answer always outranks a typed one. **Reset** clears
+      the box back to empty.
+- [ ] Only with ARGUS unable to name a bot at all does a typed name get used, and the line then
+      says "(set by you)".
 - [ ] If ARGUS's roster ever lists several bots with none assigned to your teleport yet, the line
       says to type the one to use; if a teleport goes ready with genuinely no name known, the mod
       tells you to send the /tpa yourself (nothing is typed for you) - this should be rare now

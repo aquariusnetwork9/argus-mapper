@@ -138,9 +138,10 @@ waystone, **the mod sends the `/tpa` request to it for you**, and it auto-accept
 have to type anything.
 
 The tab also has a **bot name** box, normally greyed out with the name ARGUS already gave -
-you don't need to touch it. It's there for the rare case ARGUS hasn't named one yet (say, a
-brand-new bot on the roster): type a name and that's used instead, ahead of ARGUS's own.
-With neither, the mod tells you when the bot is ready and leaves the `/tpa` to you.
+you don't need to touch it, and ARGUS's own answer always wins over whatever's typed there.
+It's a fallback for the rare case ARGUS hasn't named a bot yet, and a **Reset** button next
+to it clears anything you typed. With neither ARGUS's name nor yours, the mod tells you when
+the bot is ready and leaves the `/tpa` to you.
 
 You can also **see the waystones on Xaero's World Map**. Turn on **Show waystones on the
 Xaero map** and each waystone in the dimension you're in gets a purple marker named **ARGUS

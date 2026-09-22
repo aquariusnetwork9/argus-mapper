@@ -745,12 +745,17 @@ public final class ArgusGuiScreen extends Screen {
 
         waystoneBotLabelY = y;
         y += 10;
-        waystoneBotField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, panelW - PAD * 2, ROW_H, Text.empty());
+        int resetW = 50;
+        waystoneBotField = new TextFieldWidget(this.textRenderer, panelX + PAD, y, panelW - PAD * 2 - gap - resetW, ROW_H, Text.empty());
         waystoneBotField.setMaxLength(16);
         waystoneBotField.setTextPredicate(s -> s.matches("[A-Za-z0-9_]*"));
         waystoneBotField.setText(Waystones.manualBotName());
         waystoneBotField.setChangedListener(Waystones::setManualBotName);
         addDrawableChild(waystoneBotField);
+        addDrawableChild(new PanelButton(panelX + panelW - PAD - resetW, y, resetW, ROW_H, Text.literal("Reset"), () -> {
+            waystoneBotField.setText("");
+            Waystones.resetManualBotName();
+        }));
         y += ROW_H + ROW_GAP;
 
         List<Waystone> all = Waystones.sortedFor(mc);

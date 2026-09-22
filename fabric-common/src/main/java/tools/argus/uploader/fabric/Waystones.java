@@ -175,19 +175,17 @@ public final class Waystones {
 
     /**
      * What the mod would type for the bot right now, and where that name came from. ARGUS assigns a
-     * specific bot to every teleport ({@code assignedByTeleport}) and that is normally all this needs;
-     * the roster ({@link SystemStatus#bots()}) only fills the gap before a teleport exists to be
-     * assigned one, or if the roster ever grows past one bot with none assigned yet. The player's own
-     * typed name, if any, wins over both - a deliberate override, e.g. to route around a bad reply.
+     * specific bot to every teleport ({@code assignedByTeleport}) and always wins when it's there; the
+     * roster ({@link SystemStatus#bots()}) is next, for the gap before a teleport has been assigned
+     * one. The player's own typed name is a last resort, used only once ARGUS has given neither - a
+     * config left over from before ARGUS named its bots must never outrank ARGUS's own current answer
+     * (confirmed live: a stale, wrong-case override sent every {@code /tpa} to the wrong-case name,
+     * which 6b6t itself accepted but ARGUS's delivery never saw arrive).
      */
     private record BotChoice(String name, String source) {
     }
 
     private static BotChoice chooseBot(String assignedByTeleport) {
-        var manual = BotName.validate(config().waystoneBotName);
-        if (manual.isPresent()) {
-            return new BotChoice(manual.get(), "set by you");
-        }
         var assigned = BotName.validate(assignedByTeleport);
         if (assigned.isPresent()) {
             return new BotChoice(assigned.get(), "from ARGUS");
@@ -195,6 +193,10 @@ public final class Waystones {
         SystemStatus status = botStatus;
         if (status != null && status.bots().size() == 1) {
             return new BotChoice(status.bots().get(0), "from ARGUS");
+        }
+        var manual = BotName.validate(config().waystoneBotName);
+        if (manual.isPresent()) {
+            return new BotChoice(manual.get(), "set by you");
         }
         return null;
     }
@@ -222,6 +224,11 @@ public final class Waystones {
         } catch (IOException ignored) {
             // the name still holds for this session
         }
+    }
+
+    /** Clears a typed-in override, e.g. one left over from before ARGUS named its bots. */
+    public static void resetManualBotName() {
+        setManualBotName("");
     }
 
     public static String botNameLine() {
@@ -470,11 +477,6 @@ public final class Waystones {
             return;
         }
         String bot = choice.name();
-        var assigned = BotName.validate(status.bot());
-        if (choice.source().equals("set by you") && assigned.isPresent() && !assigned.get().equals(bot) && !warnedNoBot) {
-            warnedNoBot = true;
-            feedback(mc, "Using the bot name you set (" + bot + "), but ARGUS says this teleport is with " + assigned.get() + ".");
-        }
         if (tpaSent) {
             flowText = "Sent /tpa " + bot + " - waiting for it to accept.";
             return;
