@@ -23,8 +23,8 @@ import java.nio.file.Path;
 
 /**
  * 26.2's copy of fabric-common's ArgusUploaderClientMod, minus the pieces not yet ported here
- * (real ARD-backed nether highway geometry, PlayerDistanceTracker) - see this module's own
- * NOTES.md / build.gradle comments for what's deferred and why.
+ * (real ARD-backed nether highway geometry) - see this module's own NOTES.md / build.gradle
+ * comments for what's deferred and why.
  */
 public final class ArgusUploaderClientMod implements ClientModInitializer {
 
@@ -99,11 +99,16 @@ public final class ArgusUploaderClientMod implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(GuiLauncher::tick);
         ClientTickEvents.END_CLIENT_TICK.register(BlackzoneRemoval::tick);
         AutoUploads.register();
+        PlayerDistanceTracker.register();
+        Waystones.register();
+        Bounty.register();
+        AutoMapper.register();
 
-        // Not wired here (see NOTES.md): PlayerDistanceTracker and real ARD-backed nether highway
-        // geometry (NetherHighwayFilter is a fail-closed stub - see its own javadoc). Everything
-        // else - the full command tree, blackzones, config, server registry, stats, Discord
-        // reporting, Xaero World Map integration + region overlay, and the GUI - works.
+        // Not wired here (see NOTES.md): real ARD-backed nether highway geometry
+        // (NetherHighwayFilter is a fail-closed stub - see its own javadoc). Everything else - the
+        // full command tree, blackzones, config, server registry, stats, Discord reporting, Xaero
+        // World Map integration + region overlay, waystone teleports, bounty markers, auto-map, and
+        // the GUI - works.
     }
 
     public static ArgusConfig config() {

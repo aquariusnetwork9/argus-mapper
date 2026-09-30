@@ -13,13 +13,15 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.fabric.BountyOverlay;
 import tools.argus.uploader.fabric.RegionOverlayState;
 import xaero.map.MapProcessor;
 import xaero.map.gui.GuiMap;
 
 /**
  * 26.2's copy of 1.21.11's MixinGuiMapOverlay - colors each visible Xaero region tile by
- * {@link RegionOverlayState}'s category. See that file's own javadoc for the full rationale.
+ * {@link RegionOverlayState}'s category, and (now that {@code Bounty} is ported) draws the bounty
+ * boxes via {@link BountyOverlay}. See 1.21.11's own javadoc for the full rationale.
  *
  * <p>Verified via javap against the real installed jars (xaeroworldmap-fabric-26.2-1.46.1.jar and
  * the 26.2 Mojang-mapped client jar): {@code cameraX}/{@code cameraZ}/{@code scale}/
@@ -100,6 +102,10 @@ public abstract class MixinGuiMapOverlay {
         if (!Double.isFinite(worldLeft) || !Double.isFinite(worldRight)
                 || !Double.isFinite(worldTop) || !Double.isFinite(worldBottom)) {
             return;
+        }
+
+        if ("overworld".equals(dimension)) {
+            BountyOverlay.draw(context, cameraX, cameraZ, pixelsPerBlock, width, height);
         }
 
         int regionMinX = Math.floorDiv((int) Math.floor(worldLeft), REGION_BLOCKS);
