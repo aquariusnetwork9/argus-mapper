@@ -108,6 +108,13 @@ public final class AutoUploads {
         }
     }
 
+    public static void cancelLiveRun() {
+        UploadRunner runner = autoRunner;
+        if (runner != null && runner.isRunning()) {
+            runner.cancel();
+        }
+    }
+
     public static void resumeLive() {
         coordinator.resume(System.currentTimeMillis());
     }
@@ -149,7 +156,7 @@ public final class AutoUploads {
         }
     }
 
-    private static String dimensionOf(ClientLevel level) {
+    static String dimensionOf(ClientLevel level) {
         ResourceKey<Level> key = level.dimension();
         if (key == Level.OVERWORLD) {
             return "overworld";

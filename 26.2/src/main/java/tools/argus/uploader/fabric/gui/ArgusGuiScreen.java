@@ -12,9 +12,14 @@ import tools.argus.uploader.core.MapperStats;
 import tools.argus.uploader.core.ServerProfile;
 import tools.argus.uploader.core.UploadManifest;
 import tools.argus.uploader.core.UploadTracker;
+import tools.argus.uploader.core.automap.ChunkBox;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.fabric.AutoMapper;
 import tools.argus.uploader.fabric.AutoUploads;
 import tools.argus.uploader.fabric.BlackzoneRemoval;
+import tools.argus.uploader.fabric.Bounty;
+import tools.argus.uploader.fabric.Waystones;
+import tools.argus.uploader.core.waystone.Waystone;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -36,13 +41,16 @@ import java.util.List;
  * Fabric's own DrawContextExampleScreen.java reference).
  *
  * <p><b>No Road Dept. (ARD) tab here</b>, unlike the 1.21.x builds: ARD has no 26.2 port at all
- * (see 26.2/NOTES.md), so this screen has 7 tabs, not 8 - General, Token, Servers, Blackzones,
- * Stats, Uploads, API. If ARD ever gets a 26.2 port, that tab goes back in as its own addition, not a
- * blind copy of the 1.21.x version (which reaches into ARD's config directly).
+ * (see 26.2/NOTES.md). So this screen has 10 tabs, not 11 - General, Token, Servers, Blackzones,
+ * Stats, Uploads, Auto-map, Bounty, Waystones, API. Auto-map is now fully ported ({@code
+ * AutoMapper}), so Bounty's "go" action actually queues a flight (see {@link Bounty#requestFlight})
+ * instead of reporting a stub message. If ARD ever gets a 26.2 port, its own tab goes back in as
+ * its own addition, not a blind copy of the 1.21.x version (which reaches into ARD's config
+ * directly).
  */
 public final class ArgusGuiScreen extends Screen {
 
-    private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Blackzones", "Stats", "Uploads", "API"};
+    private static final String[] TAB_NAMES = {"General", "Token", "Servers", "Blackzones", "Stats", "Uploads", "Auto-map", "Bounty", "Waystones", "API"};
     private static final int MIN_PANEL_W = 300;
     private static final int HEADER_H = 46;
     private static final int PAD = 12;
@@ -60,6 +68,12 @@ public final class ArgusGuiScreen extends Screen {
                     + (10 + ROW_H + ROW_GAP);
     private static final int PANEL_H_DEFAULT = HEADER_H + PAD + GENERAL_TAB_CONTENT_H + PAD + ROW_H + PAD;
 
+    // status (2 lines), area label + fields, buttons, calibration label + row, 3 rows of settings -
+    // mirrors fabric-common's own row math for this tab (it's taller than PANEL_H_DEFAULT).
+    private static final int AUTO_MAP_TAB_CONTENT_H = 28 + (10 + ROW_H + ROW_GAP) + (ROW_H + ROW_GAP + 4)
+            + (10 + ROW_H + ROW_GAP + 6) + 3 * (10 + ROW_H + ROW_GAP);
+    private static final int AUTO_MAP_PANEL_H = HEADER_H + PAD + AUTO_MAP_TAB_CONTENT_H + PAD + ROW_H + PAD;
+
     private static final int BG_DIM = 0x88000000;
     private static final int PANEL_BG = 0xFF12131A;
     private static final int PANEL_BORDER = 0xFF23252F;
@@ -68,7 +82,7 @@ public final class ArgusGuiScreen extends Screen {
     private static final int ACCENT = 0xFF8A6BFF;
     private static final int FIELD_BG = 0xFF1A1C25;
 
-    private enum Tab { GENERAL, TOKEN, SERVERS, BLACKZONES, STATS, UPLOADS, API }
+    private enum Tab { GENERAL, TOKEN, SERVERS, BLACKZONES, STATS, UPLOADS, AUTO_MAP, BOUNTY, WAYSTONES, API }
 
     private Tab currentTab = Tab.GENERAL;
     private int panelX;
@@ -115,6 +129,9 @@ public final class ArgusGuiScreen extends Screen {
     }
 
     private void buildTab(Tab tab) {
+        int wanted = tab == Tab.AUTO_MAP ? AUTO_MAP_PANEL_H : PANEL_H_DEFAULT;
+        panelH = Math.min(wanted, Math.max(HEADER_H + ROW_H + PAD * 2, height - PAD * 2));
+        panelY = (height - panelH) / 2;
         labels.clear();
         tileRects.clear();
         addTabBar();
@@ -126,6 +143,9 @@ public final class ArgusGuiScreen extends Screen {
             case BLACKZONES -> buildBlackzonesTab(contentTop);
             case STATS -> buildStatsTab(contentTop);
             case UPLOADS -> buildUploadsTab(contentTop);
+            case AUTO_MAP -> buildAutoMapTab(contentTop);
+            case BOUNTY -> buildBountyTab(contentTop);
+            case WAYSTONES -> buildWaystonesTab(contentTop);
             case API -> buildApiTab(contentTop);
         }
     }
@@ -444,6 +464,290 @@ public final class ArgusGuiScreen extends Screen {
         }
     }
 
+    // ---------------------------------------------------------------- Auto-map
+
+    private static final String[] AREA_FIELDS = {"", "", "", ""};
+    private static String calibrationSpeeds = "";
+
+    private int autoMapStatusY;
+    private String autoMapError = "";
+
+    private void buildAutoMapTab(int top) {
+        ArgusConfig cfg = ArgusUploaderClientMod.config();
+        int gap = 6;
+        int inner = panelW - PAD * 2;
+        int y = top;
+        autoMapStatusY = y;
+        y += 28;
+
+        label("Area to map, in regions (min X, min Z, max X, max Z)", panelX + PAD, y, MUTED);
+        y += 10;
+        int fieldW = (inner - gap * 3) / 4;
+        for (int i = 0; i < 4; i++) {
+            int index = i;
+            EditBox field = new EditBox(this.font, panelX + PAD + i * (fieldW + gap), y, fieldW, ROW_H, Component.empty());
+            field.setMaxLength(8);
+            field.setValue(AREA_FIELDS[i]);
+            field.setResponder(s -> AREA_FIELDS[index] = s);
+            addRenderableWidget(field);
+        }
+        y += ROW_H + ROW_GAP;
+
+        int buttonW = (inner - gap * 2) / 3;
+        addRenderableWidget(new PanelButton(panelX + PAD, y, buttonW, ROW_H, Component.literal("Use my region"), this::fillAreaFromPlayer));
+        addRenderableWidget(new PanelButton(panelX + PAD + buttonW + gap, y, buttonW, ROW_H, Component.literal("Start auto-map"), this::startAutoMap)
+                .colors(0xFF362A5E, 0xFFB79CFF));
+        addRenderableWidget(new PanelButton(panelX + PAD + (buttonW + gap) * 2, y, buttonW, ROW_H, Component.literal("Stop"),
+                () -> AutoMapper.stop("stopped from the GUI")));
+        y += ROW_H + ROW_GAP + 4;
+
+        label("Calibration flight speeds, blocks/tick (blank = 1.0 to 5.99)", panelX + PAD, y, MUTED);
+        y += 10;
+        int runW = 110;
+        EditBox speeds = new EditBox(this.font, panelX + PAD, y, inner - runW - gap, ROW_H, Component.empty());
+        speeds.setMaxLength(80);
+        speeds.setValue(calibrationSpeeds);
+        speeds.setResponder(s -> calibrationSpeeds = s);
+        addRenderableWidget(speeds);
+        addRenderableWidget(new PanelButton(panelX + panelW - PAD - runW, y, runW, ROW_H, Component.literal("Run calibration"), this::startCalibration));
+        y += ROW_H + ROW_GAP + 6;
+
+        int cellW = (inner - gap) / 2;
+        int rightX = panelX + PAD + cellW + gap;
+        doubleField(panelX + PAD, y, cellW, "Pinned speed (0 = pick the best)", cfg.autoMapSpeed, v -> cfg.autoMapSpeed = v);
+        doubleField(rightX, y, cellW, "Slowest speed", cfg.autoMapMinSpeed, v -> cfg.autoMapMinSpeed = v);
+        y += 10 + ROW_H + ROW_GAP;
+        doubleField(panelX + PAD, y, cellW, "Fastest speed", cfg.autoMapMaxSpeed, v -> cfg.autoMapMaxSpeed = v);
+        label("Cruise altitude", rightX, y, MUTED);
+        addRenderableWidget(new LabeledSlider(rightX, y + 10, cellW, ROW_H, 100, 600, 5, cfg.autoMapCruiseY,
+                v -> "Y " + v, v -> cfg.autoMapCruiseY = v));
+        y += 10 + ROW_H + ROW_GAP;
+        label("Lane half-width (0 = from the table)", panelX + PAD, y, MUTED);
+        addRenderableWidget(new LabeledSlider(panelX + PAD, y + 10, cellW, ROW_H, 0, 12, 1, cfg.autoMapHalfWidthChunks,
+                v -> v == 0 ? "automatic" : v + " chunks", v -> cfg.autoMapHalfWidthChunks = v));
+        label("Width table (speed:chunks, blank = built in)", rightX, y, MUTED);
+        EditBox table = new EditBox(this.font, rightX, y + 10, cellW, ROW_H, Component.empty());
+        table.setMaxLength(160);
+        table.setValue(cfg.autoMapWidthTable);
+        table.setResponder(s -> cfg.autoMapWidthTable = s);
+        addRenderableWidget(table);
+
+        int saveY = panelY + panelH - PAD - ROW_H;
+        addRenderableWidget(saveButton(panelX + PAD, saveY, cfg));
+        label("Or right-click a box on Xaero's map.", panelX + PAD + 100, saveY + (ROW_H - 8) / 2, MUTED);
+    }
+
+    private void doubleField(int x, int y, int w, String text, double initial, java.util.function.DoubleConsumer onChange) {
+        label(text, x, y, MUTED);
+        EditBox field = new EditBox(this.font, x, y + 10, w, ROW_H, Component.empty());
+        field.setMaxLength(8);
+        field.setValue(initial == Math.rint(initial) ? Integer.toString((int) initial) : Double.toString(initial));
+        field.setResponder(s -> {
+            try {
+                double value = Double.parseDouble(s.trim());
+                if (value >= 0) {
+                    onChange.accept(value);
+                }
+            } catch (NumberFormatException ignored) {
+                // keeps the last valid value until the text parses
+            }
+        });
+        addRenderableWidget(field);
+    }
+
+    private void fillAreaFromPlayer() {
+        Minecraft client = Minecraft.getInstance();
+        if (client.player == null) {
+            return;
+        }
+        String regionX = Integer.toString(client.player.getBlockX() >> 9);
+        String regionZ = Integer.toString(client.player.getBlockZ() >> 9);
+        AREA_FIELDS[0] = regionX;
+        AREA_FIELDS[1] = regionZ;
+        AREA_FIELDS[2] = regionX;
+        AREA_FIELDS[3] = regionZ;
+        autoMapError = "";
+        switchTab(Tab.AUTO_MAP);
+    }
+
+    private void startAutoMap() {
+        try {
+            int[] r = new int[4];
+            for (int i = 0; i < 4; i++) {
+                r[i] = Integer.parseInt(AREA_FIELDS[i].trim());
+            }
+            var problem = AutoMapper.readinessProblem();
+            if (problem.isPresent()) {
+                autoMapError = problem.get();
+                return;
+            }
+            autoMapError = "";
+            AutoMapper.requestStartFromCommand(ChunkBox.ofRegions(r[0], r[1], r[2], r[3]));
+        } catch (NumberFormatException e) {
+            autoMapError = "Enter four whole numbers for the area.";
+        }
+    }
+
+    private void startCalibration() {
+        var problem = AutoMapper.readinessProblem();
+        if (problem.isPresent()) {
+            autoMapError = problem.get();
+            return;
+        }
+        autoMapError = "";
+        AutoMapper.requestCalibrationFromCommand(calibrationSpeeds);
+    }
+
+    /** Drawn every frame, like the Uploads progress, so the status follows a run in the background. */
+    private void renderAutoMap(GuiGraphicsExtractor context) {
+        int y = autoMapStatusY;
+        context.text(this.font, "Auto-map: " + AutoMapper.status(), panelX + PAD, y, TITLE_COLOR, true);
+        var problem = AutoMapper.readinessProblem();
+        if (!autoMapError.isEmpty()) {
+            context.text(this.font, autoMapError, panelX + PAD, y + 12, 0xFFFF8080, true);
+        } else if (problem.isPresent()) {
+            context.text(this.font, "Not ready: " + problem.get(), panelX + PAD, y + 12, 0xFFFFB86B, true);
+        } else {
+            context.text(this.font, "Ready: Elytra Fly is on and you're gliding.", panelX + PAD, y + 12, ACCENT, true);
+        }
+    }
+
+    // ---------------------------------------------------------------- Bounty
+
+    private int bountyStatusY;
+    private String bountyMessage = "";
+
+    private void buildBountyTab(int top) {
+        ArgusConfig cfg = ArgusUploaderClientMod.config();
+        int gap = 6;
+        int inner = panelW - PAD * 2;
+        int y = top;
+        bountyStatusY = y;
+        y += 52;
+
+        y = toggleRow(y, "Mark bounty regions on the Xaero map", cfg.bountyEnabled, Bounty::setEnabled);
+        y = sliderRow(y, "Regions to mark", 10, 100, 5, cfg.bountyLimit, v -> Integer.toString(v), v -> cfg.bountyLimit = v);
+
+        int buttonW = (inner - gap) / 2;
+        addRenderableWidget(new PanelButton(panelX + PAD, y, buttonW, ROW_H, Component.literal("Refresh now"), () -> Bounty.refreshNow()));
+        addRenderableWidget(new PanelButton(panelX + PAD + buttonW + gap, y, buttonW, ROW_H, Component.literal("Clear markers"), Bounty::clearMarkers));
+        y += ROW_H + ROW_GAP;
+        addRenderableWidget(new PanelButton(panelX + PAD, y, buttonW, ROW_H, Component.literal("Map the 2x cell"), () -> bountyFlight("2x"))
+                .colors(0xFF362A5E, 0xFFB79CFF));
+        addRenderableWidget(new PanelButton(panelX + PAD + buttonW + gap, y, buttonW, ROW_H, Component.literal("Map the nearest"), () -> bountyFlight("nearest"))
+                .colors(0xFF362A5E, 0xFFB79CFF));
+
+        addRenderableWidget(saveButton(panelX + PAD, panelY + panelH - PAD - ROW_H, cfg));
+    }
+
+    private void bountyFlight(String which) {
+        var problem = AutoMapper.readinessProblem();
+        String noBounty = Bounty.requestFlight(which);
+        bountyMessage = noBounty != null ? noBounty : problem.map(p -> "Not ready: " + p).orElse("");
+    }
+
+    private void renderBounty(GuiGraphicsExtractor context) {
+        int y = bountyStatusY;
+        int width = panelW - PAD * 2;
+        context.text(this.font, this.font.plainSubstrByWidth("Bounty: " + Bounty.statusLine(), width),
+                panelX + PAD, y, TITLE_COLOR, true);
+        context.text(this.font, this.font.plainSubstrByWidth(
+                "Temporary waypoints on Xaero's World Map.", width), panelX + PAD, y + 14, MUTED, true);
+        context.text(this.font, this.font.plainSubstrByWidth(
+                "Fetches a public list about every 2 min; sends no token.", width), panelX + PAD, y + 26, MUTED, true);
+        if (!bountyMessage.isEmpty()) {
+            context.text(this.font, this.font.plainSubstrByWidth(bountyMessage, width),
+                    panelX + PAD, y + 38, 0xFFFFB86B, true);
+        }
+    }
+
+    // ---------------------------------------------------------------- Waystones
+
+    private int waystoneStatusY;
+    private int waystonePage;
+    private int waystoneBuiltVersion = -1;
+    private int waystoneBotLabelY;
+    private EditBox waystoneBotField;
+
+    private void buildWaystonesTab(int top) {
+        Waystones.touchTab();
+        Minecraft mc = Minecraft.getInstance();
+        int gap = 6;
+        int y = top;
+        waystoneStatusY = y;
+        y += 40;
+
+        y = toggleRow(y, "Show waystones on the Xaero map", Waystones.markersEnabled(), Waystones::setMarkersEnabled);
+
+        waystoneBotLabelY = y;
+        y += 10;
+        int resetW = 50;
+        waystoneBotField = new EditBox(this.font, panelX + PAD, y, panelW - PAD * 2 - gap - resetW, ROW_H, Component.empty());
+        waystoneBotField.setMaxLength(16);
+        waystoneBotField.setValue(Waystones.manualBotName());
+        waystoneBotField.setResponder(Waystones::setManualBotName);
+        addRenderableWidget(waystoneBotField);
+        addRenderableWidget(new PanelButton(panelX + panelW - PAD - resetW, y, resetW, ROW_H, Component.literal("Reset"), () -> {
+            waystoneBotField.setValue("");
+            Waystones.resetManualBotName();
+        }));
+        y += ROW_H + ROW_GAP;
+
+        List<Waystone> all = Waystones.sortedFor(mc);
+        int rowStep = ROW_H + ROW_GAP + 2;
+        int pagerY = panelY + panelH - PAD - ROW_H;
+        int perPage = Math.max(1, (pagerY - 4 - y) / rowStep);
+        int pages = Math.max(1, (all.size() + perPage - 1) / perPage);
+        waystonePage = Math.max(0, Math.min(waystonePage, pages - 1));
+        if (all.isEmpty()) {
+            label("No waystones yet - they load when this tab opens.", panelX + PAD, y + 4, MUTED);
+        }
+        for (Waystone waystone : all.subList(waystonePage * perPage, Math.min(all.size(), (waystonePage + 1) * perPage))) {
+            double distance = Waystones.distanceTo(mc, waystone);
+            label(this.font.plainSubstrByWidth(waystone.displayName(), panelW - PAD * 2 - 76), panelX + PAD, y, TITLE_COLOR);
+            label(waystone.dimensionLabel() + "  " + waystone.x() + ", " + waystone.z()
+                    + (distance >= 0 ? "  -  " + Math.round(distance) + " blocks" : ""), panelX + PAD, y + 10, MUTED);
+            addRenderableWidget(new PanelButton(panelX + panelW - PAD - 68, y, 68, ROW_H, Component.literal("Teleport"),
+                    () -> Waystones.requestTeleport(waystone, this)).colors(0xFF362A5E, 0xFFB79CFF));
+            y += rowStep;
+        }
+
+        addRenderableWidget(new PanelButton(panelX + PAD, pagerY, 24, ROW_H, Component.literal("<"), () -> {
+            waystonePage = Math.max(0, waystonePage - 1);
+            switchTab(Tab.WAYSTONES);
+        }));
+        label((waystonePage + 1) + " / " + pages, panelX + PAD + 32, pagerY + (ROW_H - 8) / 2, MUTED);
+        addRenderableWidget(new PanelButton(panelX + PAD + 70, pagerY, 24, ROW_H, Component.literal(">"), () -> {
+            waystonePage = Math.min(pages - 1, waystonePage + 1);
+            switchTab(Tab.WAYSTONES);
+        }));
+        addRenderableWidget(new PanelButton(panelX + panelW - PAD - 90, pagerY, 90, ROW_H, Component.literal("Refresh"), Waystones::refreshNow));
+        waystoneBuiltVersion = Waystones.version();
+    }
+
+    private void renderWaystones(GuiGraphicsExtractor context) {
+        Waystones.touchTab();
+        if (Waystones.version() != waystoneBuiltVersion) {
+            switchTab(Tab.WAYSTONES);
+        }
+        int y = waystoneStatusY;
+        int width = panelW - PAD * 2;
+        if (waystoneBotField != null) {
+            waystoneBotField.setSuggestion(waystoneBotField.getValue().isEmpty() ? Waystones.botSuggestion() : "");
+        }
+        context.text(this.font, this.font.plainSubstrByWidth(Waystones.botNameLine(), width),
+                panelX + PAD, waystoneBotLabelY, MUTED, true);
+        context.text(this.font, this.font.plainSubstrByWidth(Waystones.accountLine(), width),
+                panelX + PAD, y, TITLE_COLOR, true);
+        context.text(this.font, this.font.plainSubstrByWidth(Waystones.botLine(), width),
+                panelX + PAD, y + 12, MUTED, true);
+        String third = !Waystones.flowLine().isEmpty() ? Waystones.flowLine()
+                : !Waystones.markersLine().isEmpty() && Waystones.markersEnabled() ? "Map: " + Waystones.markersLine()
+                : Waystones.listLine();
+        context.text(this.font, this.font.plainSubstrByWidth(third, width),
+                panelX + PAD, y + 24, Waystones.flowLine().isEmpty() ? MUTED : ACCENT, true);
+    }
+
     // ---------------------------------------------------------------- API
 
     private void buildApiTab(int top) {
@@ -521,6 +825,15 @@ public final class ArgusGuiScreen extends Screen {
 
         if (currentTab == Tab.UPLOADS) {
             renderUploads(context);
+        }
+        if (currentTab == Tab.AUTO_MAP) {
+            renderAutoMap(context);
+        }
+        if (currentTab == Tab.BOUNTY) {
+            renderBounty(context);
+        }
+        if (currentTab == Tab.WAYSTONES) {
+            renderWaystones(context);
         }
 
         super.extractRenderState(context, mouseX, mouseY, delta);

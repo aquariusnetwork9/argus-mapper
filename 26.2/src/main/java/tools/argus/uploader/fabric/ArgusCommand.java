@@ -15,6 +15,7 @@ import tools.argus.uploader.core.CoordLimits;
 import tools.argus.uploader.core.DiscordWebhookClient;
 import tools.argus.uploader.core.LeaderboardReport;
 import tools.argus.uploader.core.RegionBounds;
+import tools.argus.uploader.core.automap.ChunkBox;
 import tools.argus.uploader.core.RegionFile;
 import tools.argus.uploader.core.ServerProfile;
 import tools.argus.uploader.core.UploadManifest;
@@ -133,7 +134,128 @@ final class ArgusCommand {
                         .executes(ctx -> autoStatus(ctx.getSource()))
                         .then(literal("on").executes(ctx -> autoOn(ctx.getSource(), AutoUploads.Kind.WHOLE_MAP)))
                         .then(literal("off").executes(ctx -> autoOff(ctx.getSource(), AutoUploads.Kind.WHOLE_MAP))))
+                .then(literal("automap")
+                        .executes(ctx -> autoMapStatus(ctx.getSource()))
+                        .then(literal("status").executes(ctx -> autoMapStatus(ctx.getSource())))
+                        .then(literal("stop").executes(ctx -> autoMapStop(ctx.getSource())))
+                        .then(literal("calibrate")
+                                .executes(ctx -> autoMapCalibrate(ctx.getSource(), ""))
+                                .then(argument("speeds", StringArgumentType.greedyString())
+                                        .executes(ctx -> autoMapCalibrate(ctx.getSource(),
+                                                StringArgumentType.getString(ctx, "speeds")))))
+                        .then(literal("start")
+                                .then(argument("minRegionX", IntegerArgumentType.integer())
+                                        .then(argument("minRegionZ", IntegerArgumentType.integer())
+                                                .then(argument("maxRegionX", IntegerArgumentType.integer())
+                                                        .then(argument("maxRegionZ", IntegerArgumentType.integer())
+                                                                .executes(ctx -> autoMapStart(ctx.getSource(),
+                                                                        IntegerArgumentType.getInteger(ctx, "minRegionX"),
+                                                                        IntegerArgumentType.getInteger(ctx, "minRegionZ"),
+                                                                        IntegerArgumentType.getInteger(ctx, "maxRegionX"),
+                                                                        IntegerArgumentType.getInteger(ctx, "maxRegionZ")))))))))
+                .then(literal("bounty")
+                        .executes(ctx -> bountyStatus(ctx.getSource()))
+                        .then(literal("status").executes(ctx -> bountyStatus(ctx.getSource())))
+                        .then(literal("on").executes(ctx -> bountySet(ctx.getSource(), true)))
+                        .then(literal("off").executes(ctx -> bountySet(ctx.getSource(), false)))
+                        .then(literal("refresh").executes(ctx -> bountyRefresh(ctx.getSource())))
+                        .then(literal("go")
+                                .executes(ctx -> bountyGo(ctx.getSource(), null))
+                                .then(literal("2x").executes(ctx -> bountyGo(ctx.getSource(), "2x")))
+                                .then(literal("nearest").executes(ctx -> bountyGo(ctx.getSource(), "nearest"))))
+                        .then(literal("clear").executes(ctx -> bountyClear(ctx.getSource()))))
+                .then(literal("waystone")
+                        .executes(ctx -> waystoneStatus(ctx.getSource()))
+                        .then(literal("status").executes(ctx -> waystoneStatus(ctx.getSource())))
+                        .then(literal("refresh").executes(ctx -> waystoneRefresh(ctx.getSource())))
+                        .then(literal("cancel").executes(ctx -> waystoneCancel(ctx.getSource()))))
                 .then(literal("gui").executes(ctx -> openGui(ctx.getSource()))));
+    }
+
+    private static int waystoneStatus(FabricClientCommandSource source) {
+        info(source, Waystones.accountLine());
+        info(source, Waystones.botLine());
+        info(source, Waystones.listLine());
+        if (!Waystones.flowLine().isEmpty()) {
+            info(source, Waystones.flowLine());
+        }
+        info(source, "Pick a waystone on the GUI's Waystones tab, or right-click one on Xaero's World Map.");
+        return 1;
+    }
+
+    private static int waystoneRefresh(FabricClientCommandSource source) {
+        Waystones.refreshNow();
+        info(source, "Refreshing the waystone list while the Waystones tab is open (or the map markers are on).");
+        return 1;
+    }
+
+    private static int waystoneCancel(FabricClientCommandSource source) {
+        if (!Waystones.isBusy()) {
+            error(source, "No waystone teleport is in progress.");
+            return 0;
+        }
+        Waystones.cancelFlow();
+        return 1;
+    }
+
+    private static int bountyStatus(FabricClientCommandSource source) {
+        info(source, "Bounty: " + Bounty.statusLine());
+        return 1;
+    }
+
+    private static int bountySet(FabricClientCommandSource source, boolean on) {
+        Bounty.setEnabled(on);
+        info(source, on
+                ? "Bounty markers on. About every 2 minutes, in the overworld on a known server, the mod fetches the public list and marks it on Xaero's World Map."
+                : "Bounty markers off and cleared. Nothing is fetched.");
+        return 1;
+    }
+
+    private static int bountyGo(FabricClientCommandSource source, String which) {
+        String problem = Bounty.requestFlight(which);
+        if (problem != null) {
+            error(source, problem);
+            return 0;
+        }
+        info(source, "Confirm in the popup to fly there and map it.");
+        return 1;
+    }
+
+    private static int bountyRefresh(FabricClientCommandSource source) {
+        info(source, Bounty.refreshNow());
+        return 1;
+    }
+
+    private static int bountyClear(FabricClientCommandSource source) {
+        Bounty.clearMarkers();
+        info(source, "Cleared the bounty markers. They come back at the next refresh while bounty is on.");
+        return 1;
+    }
+
+    private static int autoMapStatus(FabricClientCommandSource source) {
+        info(source, "Auto-map: " + AutoMapper.status());
+        return 1;
+    }
+
+    private static int autoMapStop(FabricClientCommandSource source) {
+        if (!AutoMapper.isRunning()) {
+            error(source, "Auto-map isn't running.");
+            return 0;
+        }
+        AutoMapper.stop("stopped by /argus automap stop");
+        return 1;
+    }
+
+    private static int autoMapCalibrate(FabricClientCommandSource source, String speeds) {
+        AutoMapper.requestCalibrationFromCommand(speeds);
+        info(source, "Confirm in the popup to start the calibration flight.");
+        return 1;
+    }
+
+    private static int autoMapStart(FabricClientCommandSource source, int regionX1, int regionZ1, int regionX2, int regionZ2) {
+        AutoMapper.requestStartFromCommand(ChunkBox.ofRegions(regionX1, regionZ1, regionX2, regionZ2));
+        info(source, "Confirm in the popup to start auto-mapping.");
+        return 1;
     }
 
     private static String autoLabel(AutoUploads.Kind kind) {

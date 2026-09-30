@@ -13,8 +13,12 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import tools.argus.uploader.core.BlackZone;
 import tools.argus.uploader.core.RegionBounds;
+import tools.argus.uploader.core.automap.ChunkBox;
+import tools.argus.uploader.core.bounty.BountyRegion;
 import tools.argus.uploader.fabric.ArgusUploaderClientMod;
+import tools.argus.uploader.fabric.AutoMapper;
 import tools.argus.uploader.fabric.BlackzoneRemoval;
+import tools.argus.uploader.fabric.Bounty;
 import tools.argus.uploader.fabric.MapUploadTrigger;
 import xaero.map.MapProcessor;
 import xaero.map.gui.GuiMap;
@@ -27,8 +31,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 26.2's copy of 1.21.11's MixinGuiMap - adds a "Mark Blackzone" entry to Xaero's World Map
- * right-click menu, covering whatever area is currently drag-selected.
+ * 26.2's copy of 1.21.11's MixinGuiMap - adds "Mark Blackzone", "Auto-Map This Area" and (when a
+ * bounty region overlaps the selection) "Fly to Bounty Region and Auto-Map" entries to Xaero's
+ * World Map right-click menu, covering whatever area is currently drag-selected.
  *
  * <p>Verified via javap against the real jar installed in the 26.2 test instance
  * (xaeroworldmap-fabric-26.2-1.46.1.jar, paired with XaeroPlus). {@code cameraX}/{@code cameraZ}/
@@ -76,6 +81,24 @@ public abstract class MixinGuiMap {
                 argusMapper$markBlackzone(selection);
             }
         });
+        options.add(new RightClickOption("argus_mapper.gui.world_map.auto_map", options.size(), self) {
+            @Override
+            public void onAction(Screen screen) {
+                AutoMapper.requestStart(ChunkBox.ofCorners(selection.getLeft(), selection.getTop(),
+                        selection.getRight(), selection.getBottom()), screen);
+            }
+        });
+
+        BountyRegion bountyHere = Bounty.regionOverlapping(selection.getLeft() * 16, selection.getTop() * 16,
+                (selection.getRight() + 1) * 16, (selection.getBottom() + 1) * 16);
+        if (bountyHere != null) {
+            options.add(new RightClickOption("argus_mapper.gui.world_map.bounty_fly", options.size(), self) {
+                @Override
+                public void onAction(Screen screen) {
+                    AutoMapper.requestBounty(bountyHere, screen);
+                }
+            });
+        }
 
         List<BlackZone> blackzonesInSelection = argusMapper$blackzonesIn(selection);
         if (!blackzonesInSelection.isEmpty()) {

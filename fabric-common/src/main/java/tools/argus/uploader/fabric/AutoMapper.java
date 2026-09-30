@@ -390,9 +390,9 @@ public final class AutoMapper {
         if (reason != null) {
             finished.abort(reason);
         }
-        long minutes = Math.max(1, (System.currentTimeMillis() - startedAtMillis) / 60_000L);
+        double elapsedSeconds = (System.currentTimeMillis() - startedAtMillis) / 1000.0;
         String label = calibrating ? "Calibration" : "Auto-map";
-        String result = finished.resultLine() + " " + minutes + " min.";
+        String result = finished.resultLine() + " " + formatDuration(elapsedSeconds) + ".";
         if (finished.state() == AutoMapController.State.ABORTED) {
             feedback(client, label + " stopped: " + finished.abortReason() + ". " + result);
         } else {
